@@ -72,7 +72,6 @@ export const alertValidation = {
   resolve: [
     param('id').isInt().withMessage('Invalid alert ID'),
     body('reason').trim().notEmpty().withMessage('Resolution reason required'),
-    body('userId').isUUID().withMessage('Valid user ID required'),
   ],
 };
 

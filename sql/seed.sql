@@ -55,14 +55,34 @@ INSERT INTO gps_device (id, accelerometers_status, battery, operating_mode) VALU
 (7, 'alert', 35, 'normal'),
 (8, 'normal', 95, 'normal');
 
--- Gateway devices
-INSERT INTO devices (dev_eui, name, company_id, type_device, is_active, latitude_current, longitude_current) VALUES
-('GW-001-AAAA-1111', 'Gateway Central Norte', 1, 'Gateway', true, -33.4490, -70.6695),
-('GW-002-BBBB-2222', 'Gateway Mina Sur', 2, 'Gateway', true, -37.1240, -72.5680);
+-- Gateway devices (12 gateways - antenas que reciben datos de sensores)
+INSERT INTO devices (dev_eui, name, company_id, type_device, is_active, latitude_current, longitude_current, last_seen) VALUES
+('GW-001-AAAA-1111', 'Gateway Central Norte', 1, 'Gateway', true, -33.4490, -70.6695, NOW() - INTERVAL '1 minute'),
+('GW-002-BBBB-2222', 'Gateway Mina Sur', 2, 'Gateway', true, -37.1240, -72.5680, NOW() - INTERVAL '30 seconds'),
+('GW-003-CCCC-3333', 'Gateway Ruta 5 Norte', 1, 'Gateway', true, -32.9500, -71.3000, NOW() - INTERVAL '2 minutes'),
+('GW-004-DDDD-4444', 'Gateway Ruta 5 Sur', 1, 'Gateway', true, -35.5000, -71.6000, NOW() - INTERVAL '3 minutes'),
+('GW-005-EEEE-5555', 'Gateway Cordillera', 2, 'Gateway', true, -36.8000, -73.0500, NOW() - INTERVAL '1 minute'),
+('GW-006-FFFF-6666', 'Gateway Costa Central', 1, 'Gateway', true, -33.0000, -71.5500, NOW() - INTERVAL '4 minutes'),
+('GW-007-GGGG-7777', 'Gateway Valle Central', 3, 'Gateway', true, -34.5000, -70.8000, NOW() - INTERVAL '30 seconds'),
+('GW-008-HHHH-8888', 'Gateway Zona Austral', 2, 'Gateway', true, -39.8000, -73.2500, NOW() - INTERVAL '5 minutes'),
+('GW-009-IIII-9999', 'Gateway Puerto Norte', 1, 'Gateway', true, -32.7500, -71.4000, NOW() - INTERVAL '1 minute'),
+('GW-010-JJJJ-0000', 'Gateway Desierto Sur', 2, 'Gateway', true, -38.7000, -72.5000, NOW() - INTERVAL '2 minutes'),
+('GW-011-KKKK-1111', 'Gateway Lago Sur', 1, 'Gateway', false, -40.5000, -72.8000, NOW() - INTERVAL '2 hours'),
+('GW-012-LLLL-2222', 'Gateway Frontera Norte', 3, 'Gateway', false, -18.5000, -69.8000, NOW() - INTERVAL '1 day');
 
 INSERT INTO gateway_device (id, ip_internal, firmware_version) VALUES
 (9, '192.168.1.101', 'v2.3.1'),
-(10, '192.168.2.101', 'v2.3.0');
+(10, '192.168.2.101', 'v2.3.0'),
+(15, '192.168.3.101', 'v2.4.0'),
+(16, '192.168.4.101', 'v2.4.0'),
+(17, '192.168.5.101', 'v2.3.2'),
+(18, '192.168.6.101', 'v2.4.1'),
+(19, '192.168.7.101', 'v2.3.1'),
+(20, '192.168.8.101', 'v2.4.0'),
+(21, '192.168.9.101', 'v2.4.1'),
+(22, '192.168.10.101', 'v2.3.2'),
+(23, '192.168.11.101', 'v2.3.0'),
+(24, '192.168.12.101', 'v2.4.0');
 
 -- Sub Estacion devices
 INSERT INTO devices (dev_eui, name, company_id, type_device, is_active, latitude_current, longitude_current) VALUES

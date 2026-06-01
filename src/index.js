@@ -33,7 +33,7 @@ app.use(morgan('dev'));
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => req.path === '/api/health',
@@ -41,14 +41,24 @@ const limiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Too many authentication attempts',
 });
 
+// Límite más restrictivo para búsquedas (evita abuso sin afectar otras rutas)
+const searchLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Demasiadas búsquedas. Intenta de nuevo en 15 minutos.',
+});
+
 app.use('/api', limiter);
 app.use('/api/auth', authLimiter);
+app.use('/api/telemetry/devices/search', searchLimiter);
 
 // Health check (público, sin auth, sin json parsing)
 app.get('/api/health', async (req, res) => {

@@ -82,3 +82,96 @@ export const getDevicesLocations = () => pool.query(`
   ORDER BY d.last_seen DESC
   LIMIT 5000
 `, [DEVICE_TYPES.GPS, ALERT_STATUSES.ACTIVE]);
+
+/**
+ * Obtiene el estado online/offline de todos los Gateways
+ * Online: is_active = true y last_seen < 5 minutos
+ * Offline: is_active = false o last_seen >= 5 minutos
+ */
+export const getGatewayStatus = () => pool.query(`
+  SELECT 
+    d.id,
+    d.dev_eui,
+    d.name,
+    d.company_id,
+    c.name as company_name,
+    d.latitude_current,
+    d.longitude_current,
+    d.last_seen,
+    d.is_active,
+    gw.ip_internal,
+    gw.firmware_version,
+    CASE 
+      WHEN d.is_active = true AND (
+        d.last_seen IS NULL OR 
+        d.last_seen >= NOW() - INTERVAL '5 minutes'
+      ) THEN true 
+      ELSE false 
+    END as is_online
+  FROM devices d
+  LEFT JOIN gateway_device gw ON d.id = gw.id
+  LEFT JOIN companies c ON d.company_id = c.id
+  WHERE d.type_device = $1
+  ORDER BY d.name ASC
+  LIMIT 50
+`, [DEVICE_TYPES.GATEWAY]);
+
+/**
+ * Obtiene historial de alertas filtrado por tipo y rango de tiempo.
+ * Independiente de las alertas activas en pantalla.
+ * @param {string} type - 'critica' | 'atencion' | 'gateways'
+ * @param {string} range - '1h' | '24h' | '7d' | '30d' | 'total'
+ */
+export const getAlertHistory = (type, range) => {
+  const intervals = { '1h': '1 hour', '24h': '24 hours', '7d': '7 days', '30d': '30 days' };
+  const interval = intervals[range];
+  const timeFilter = interval ? `AND a.created_at >= NOW() - INTERVAL '${interval}'` : '';
+
+  if (type === 'gateways') {
+    // Placeholder: cuando se implementen alertas de desconexión en la tabla 'alerts'
+    return Promise.resolve({ rows: [] });
+  }
+
+  return pool.query(`
+    SELECT 
+      a.id, a.device_id, a.type, a.status, a.metadata, a.created_at, a.resolved_at,
+      d.name as device_name, d.dev_eui
+    FROM alerts a
+    JOIN devices d ON a.device_id = d.id
+    WHERE a.type = $1 ${timeFilter}
+    ORDER BY a.created_at DESC
+    LIMIT 1000
+  `, [type]);
+};
+
+/**
+ * Obtiene línea de tiempo unificada de todas las alertas para el panel derecho.
+ * Todo desde la tabla alerts, sin inventar datos.
+ * Orden: críticas activas → atención activa → resueltas (por fecha DESC)
+ * @param {string} range - '1h' | '24h' | '7d' | '30d' | 'total'
+ */
+export const getAlertTimeline = async (range) => {
+  const intervals = { '1h': '1 hour', '24h': '24 hours', '7d': '7 days', '30d': '30 days' };
+  const interval = intervals[range];
+  const timeFilter = interval ? `AND a.created_at >= NOW() - INTERVAL '${interval}'` : '';
+
+  const result = await pool.query(`
+    SELECT 
+      a.id, a.device_id, a.type, a.status, a.metadata, a.created_at, a.resolved_at, a.user_reason,
+      d.name as device_name, d.dev_eui,
+      CASE 
+        WHEN a.type = 'critica' AND a.status = 'active' THEN 0
+        WHEN a.type = 'atencion' AND a.status = 'active' THEN 1
+        ELSE 2
+      END as priority,
+      a.status as alert_status
+    FROM alerts a
+    JOIN devices d ON a.device_id = d.id
+    WHERE (a.type = 'critica' OR a.type = 'atencion')
+      ${timeFilter}
+    ORDER BY priority ASC, a.created_at DESC
+    LIMIT 500
+  `);
+
+  return { rows: result.rows };
+};
