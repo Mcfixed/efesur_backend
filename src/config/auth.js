@@ -13,7 +13,14 @@ export const auth = betterAuth({
       emailVerified: 'email_verified',
       createdAt: 'created_at',
       updatedAt: 'updated_at'
-    }
+    },
+    additionalFields: {
+      is_superuser: {
+        type: 'boolean',
+        required: false,
+        defaultValue: false,
+      },
+    },
   },
   session: {
     expiresIn: 60 * 60 * 24 * 7,

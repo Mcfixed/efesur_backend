@@ -5,44 +5,36 @@
 
 -- Companies
 INSERT INTO companies (name, rut, sector, color_theme, is_active) VALUES
-('Transporte Norte S.A.', '76.123.456-7', 'Logística', '#007bff', true),
-('Minerales del Sur SpA', '76.987.654-3', 'Minería', '#28a745', true),
-('Energía Verde Ltda.', '76.555.444-1', 'Energía Renovable', '#ffc107', true);
+('AST.', '76.123.456-7', 'Logística', '#007bff', true),
+('AST2', '76.987.654-3', 'Minería', '#28a745', true),
+('AST3', '76.555.444-1', 'Energía Renovable', '#ffc107', true);
 
 -- Users
 INSERT INTO users (email, email_verified, name, is_superuser) VALUES
-('admin@efe.cl', true, 'Administrador Sistema', true),
-('juan.perez@transportenorte.cl', true, 'Juan Pérez', false),
-('maria.lopez@mineralesdelsur.cl', true, 'María López', false),
-('carlos.rodriguez@energiaverde.cl', true, 'Carlos Rodríguez', false),
-('operador1@transportenorte.cl', true, 'Roberto Sánchez', false);
+('admin@wisensor.cl', true, 'Administrador Sistema', true),
+('diego@wisensor.cl', true, 'Diego García', false);
 
 -- Company-User assignments (usando subqueries para obtener los UUIDs reales)
 INSERT INTO companies_users (company_id, user_id, role) VALUES
-(1, (SELECT id FROM users WHERE email = 'admin@efe.cl'), 'admin'),
-(1, (SELECT id FROM users WHERE email = 'juan.perez@transportenorte.cl'), 'admin'),
-(1, (SELECT id FROM users WHERE email = 'operador1@transportenorte.cl'), 'operator'),
-(2, (SELECT id FROM users WHERE email = 'admin@efe.cl'), 'admin'),
-(2, (SELECT id FROM users WHERE email = 'maria.lopez@mineralesdelsur.cl'), 'admin'),
-(3, (SELECT id FROM users WHERE email = 'admin@efe.cl'), 'admin'),
-(3, (SELECT id FROM users WHERE email = 'carlos.rodriguez@energiaverde.cl'), 'admin');
+(1, (SELECT id FROM users WHERE email = 'admin@wisensor.cl'), 'admin'),
+(1, (SELECT id FROM users WHERE email = 'diego@wisensor.cl'), 'operator');
 
 -- Company Config
 INSERT INTO company_config (company_id, url, color) VALUES
-(1, 'https://transportenorte.cl', '#007bff'),
-(2, 'https://mineralesdelsur.cl', '#28a745'),
-(3, 'https://energiaverde.cl', '#ffc107');
+(1, 'https://ast.cl', '#007bff'),
+(2, 'https://test2empresa2.cl', '#28a745'),
+(3, 'https://test3empresa3.cl', '#ffc107');
 
 -- Devices (GPS trackers)
 INSERT INTO devices (dev_eui, name, company_id, type_device, is_active, latitude_current, longitude_current, last_seen) VALUES
-('GPS-001-AAAA-1111', 'Camión LA-1234', 1, 'Gps', true, -33.4489, -70.6693, NOW()),
-('GPS-002-BBBB-2222', 'Camión LA-2345', 1, 'Gps', true, -33.4589, -70.6593, NOW()),
-('GPS-003-CCCC-3333', 'Camión LA-3456', 1, 'Gps', true, -33.4389, -70.6793, NOW()),
-('GPS-004-DDDD-4444', 'Camión LA-4567', 2, 'Gps', true, -37.1234, -72.5678, NOW()),
-('GPS-005-EEEE-5555', 'Camión LA-5678', 2, 'Gps', true, -37.1334, -72.5778, NOW()),
-('GPS-006-FFFF-6666', 'Bus LA-6789', 1, 'Gps', true, -33.4500, -70.6650, NOW()),
-('GPS-007-GGGG-7777', 'CamiónMinerales-001', 2, 'Gps', true, -37.1500, -72.5900, NOW()),
-('GPS-008-HHHH-8888', 'Panel Solar-001', 3, 'Gps', true, -33.4600, -70.6800, NOW());
+('GPS-001-AAAA-1111', 'V1test1', 1, 'Gps', true, -33.4489, -70.6693, NOW()),
+('GPS-002-BBBB-2222', 'V1test2', 1, 'Gps', true, -33.4589, -70.6593, NOW()),
+('GPS-003-CCCC-3333', 'V1test3', 1, 'Gps', true, -33.4389, -70.6793, NOW()),
+('GPS-004-DDDD-4444', 'V1test4', 2, 'Gps', true, -37.1234, -72.5678, NOW()),
+('GPS-005-EEEE-5555', 'V1test5', 2, 'Gps', true, -37.1334, -72.5778, NOW()),
+('GPS-006-FFFF-6666', 'V1test6', 1, 'Gps', true, -33.4500, -70.6650, NOW()),
+('GPS-007-GGGG-7777', 'V1test7', 2, 'Gps', true, -37.1500, -72.5900, NOW()),
+('GPS-008-HHHH-8888', 'V1test8', 3, 'Gps', true, -33.4600, -70.6800, NOW());
 
 -- GPS Device specific data
 INSERT INTO gps_device (id, accelerometers_status, battery, operating_mode) VALUES
@@ -57,32 +49,32 @@ INSERT INTO gps_device (id, accelerometers_status, battery, operating_mode) VALU
 
 -- Gateway devices (12 gateways - antenas que reciben datos de sensores)
 INSERT INTO devices (dev_eui, name, company_id, type_device, is_active, latitude_current, longitude_current, last_seen) VALUES
-('GW-001-AAAA-1111', 'Gateway Central Norte', 1, 'Gateway', true, -33.4490, -70.6695, NOW() - INTERVAL '1 minute'),
-('GW-002-BBBB-2222', 'Gateway Mina Sur', 2, 'Gateway', true, -37.1240, -72.5680, NOW() - INTERVAL '30 seconds'),
-('GW-003-CCCC-3333', 'Gateway Ruta 5 Norte', 1, 'Gateway', true, -32.9500, -71.3000, NOW() - INTERVAL '2 minutes'),
-('GW-004-DDDD-4444', 'Gateway Ruta 5 Sur', 1, 'Gateway', true, -35.5000, -71.6000, NOW() - INTERVAL '3 minutes'),
-('GW-005-EEEE-5555', 'Gateway Cordillera', 2, 'Gateway', true, -36.8000, -73.0500, NOW() - INTERVAL '1 minute'),
-('GW-006-FFFF-6666', 'Gateway Costa Central', 1, 'Gateway', true, -33.0000, -71.5500, NOW() - INTERVAL '4 minutes'),
-('GW-007-GGGG-7777', 'Gateway Valle Central', 3, 'Gateway', true, -34.5000, -70.8000, NOW() - INTERVAL '30 seconds'),
-('GW-008-HHHH-8888', 'Gateway Zona Austral', 2, 'Gateway', true, -39.8000, -73.2500, NOW() - INTERVAL '5 minutes'),
-('GW-009-IIII-9999', 'Gateway Puerto Norte', 1, 'Gateway', true, -32.7500, -71.4000, NOW() - INTERVAL '1 minute'),
-('GW-010-JJJJ-0000', 'Gateway Desierto Sur', 2, 'Gateway', true, -38.7000, -72.5000, NOW() - INTERVAL '2 minutes'),
-('GW-011-KKKK-1111', 'Gateway Lago Sur', 1, 'Gateway', false, -40.5000, -72.8000, NOW() - INTERVAL '2 hours'),
-('GW-012-LLLL-2222', 'Gateway Frontera Norte', 3, 'Gateway', false, -18.5000, -69.8000, NOW() - INTERVAL '1 day');
+('GW-001-AAAA-1111', 'Gateway Central1', 1, 'Gateway', true, -33.4490, -70.6695, NOW() - INTERVAL '1 minute'),
+('GW-002-BBBB-2222', 'Gateway Central2', 2, 'Gateway', true, -37.1240, -72.5680, NOW() - INTERVAL '30 seconds'),
+('GW-003-CCCC-3333', 'Gateway Central3', 1, 'Gateway', true, -32.9500, -71.3000, NOW() - INTERVAL '2 minutes'),
+('GW-004-DDDD-4444', 'Gateway Central4', 1, 'Gateway', true, -35.5000, -71.6000, NOW() - INTERVAL '3 minutes'),
+('GW-005-EEEE-5555', 'Gateway Central5', 2, 'Gateway', true, -36.8000, -73.0500, NOW() - INTERVAL '1 minute'),
+('GW-006-FFFF-6666', 'Gateway Central6', 1, 'Gateway', true, -33.0000, -71.5500, NOW() - INTERVAL '4 minutes'),
+('GW-007-GGGG-7777', 'Gateway Central7', 3, 'Gateway', true, -34.5000, -70.8000, NOW() - INTERVAL '30 seconds'),
+('GW-008-HHHH-8888', 'Gateway Central8', 2, 'Gateway', true, -39.8000, -73.2500, NOW() - INTERVAL '5 minutes'),
+('GW-009-IIII-9999', 'Gateway Central9', 1, 'Gateway', true, -32.7500, -71.4000, NOW() - INTERVAL '1 minute'),
+('GW-010-JJJJ-0000', 'Gateway Central10', 2, 'Gateway', true, -38.7000, -72.5000, NOW() - INTERVAL '2 minutes'),
+('GW-011-KKKK-1111', 'Gateway Central11', 1, 'Gateway', false, -40.5000, -72.8000, NOW() - INTERVAL '2 hours'),
+('GW-012-LLLL-2222', 'Gateway Central12', 3, 'Gateway', false, -18.5000, -69.8000, NOW() - INTERVAL '1 day');
 
-INSERT INTO gateway_device (id, ip_internal, firmware_version) VALUES
-(9, '192.168.1.101', 'v2.3.1'),
-(10, '192.168.2.101', 'v2.3.0'),
-(15, '192.168.3.101', 'v2.4.0'),
-(16, '192.168.4.101', 'v2.4.0'),
-(17, '192.168.5.101', 'v2.3.2'),
-(18, '192.168.6.101', 'v2.4.1'),
-(19, '192.168.7.101', 'v2.3.1'),
-(20, '192.168.8.101', 'v2.4.0'),
-(21, '192.168.9.101', 'v2.4.1'),
-(22, '192.168.10.101', 'v2.3.2'),
-(23, '192.168.11.101', 'v2.3.0'),
-(24, '192.168.12.101', 'v2.4.0');
+INSERT INTO gateway_device (id, ip_internal,battery, firmware_version) VALUES
+(9, '192.168.1.101', 100, 'v2.3.1'),
+(10, '192.168.2.101', 95, 'v2.3.0'),
+(15, '192.168.3.101', 90, 'v2.4.0'), 
+(16, '192.168.4.101', 85, 'v2.4.0'),
+(17, '192.168.5.101', 80, 'v2.3.2'),
+(18, '192.168.6.101', 75, 'v2.4.1'),
+(19, '192.168.7.101', 90, 'v2.3.1'),
+(20, '192.168.8.101', 85, 'v2.4.0'),
+(21, '192.168.9.101', 95, 'v2.4.1'),
+(22, '192.168.10.101', 80, 'v2.3.2'),
+(23, '192.168.11.101', 90, 'v2.3.0'),
+(24, '192.168.12.101', 85, 'v2.4.0');
 
 -- Sub Estacion devices
 INSERT INTO devices (dev_eui, name, company_id, type_device, is_active, latitude_current, longitude_current) VALUES

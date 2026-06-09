@@ -6,10 +6,20 @@ export const getAllGpsDevices = () => pool.query(`
     d.id, d.dev_eui, d.name, d.type_device,
     d.latitude_current, d.longitude_current, d.last_seen, d.is_active,
     g.battery, g.accelerometers_status, g.operating_mode,
-    c.name as company_name
+    c.name as company_name,
+    snr.best_snr
   FROM devices d
   LEFT JOIN gps_device g ON d.id = g.id
   LEFT JOIN companies c ON d.company_id = c.id
+  LEFT JOIN LATERAL (
+    SELECT MAX((gw->>'snr')::numeric) as best_snr
+    FROM (
+      SELECT t.rxinfo FROM telemetry_data_all t
+      WHERE t.device_id = d.id AND t.rxinfo IS NOT NULL AND jsonb_typeof(t.rxinfo) = 'array'
+      ORDER BY t.ts DESC LIMIT 1
+    ) lat,
+    jsonb_array_elements(lat.rxinfo) gw
+  ) snr ON true
   WHERE d.type_device = $1 AND d.is_active = true
   ORDER BY d.last_seen DESC
   LIMIT 1000
@@ -50,7 +60,7 @@ export const getAtencionAlerts = () => pool.query(`
   FROM alerts a
   JOIN devices d ON a.device_id = d.id
   WHERE a.type = $1 AND a.status = $2
-  AND a.created_at >= NOW() - INTERVAL '30 minutes'
+  AND (a.created_at AT TIME ZONE 'UTC') >= NOW() - INTERVAL '1 minutes'
   ORDER BY a.created_at DESC
   LIMIT 500
 `, [ALERT_TYPES.ATENCION, ALERT_STATUSES.ACTIVE]);
@@ -104,7 +114,7 @@ export const getGatewayStatus = () => pool.query(`
     CASE 
       WHEN d.is_active = true AND (
         d.last_seen IS NULL OR 
-        d.last_seen >= NOW() - INTERVAL '5 minutes'
+        (d.last_seen AT TIME ZONE 'UTC') >= NOW() - INTERVAL '5 minutes'
       ) THEN true 
       ELSE false 
     END as is_online
@@ -125,7 +135,7 @@ export const getGatewayStatus = () => pool.query(`
 export const getAlertHistory = (type, range) => {
   const intervals = { '1h': '1 hour', '24h': '24 hours', '7d': '7 days', '30d': '30 days' };
   const interval = intervals[range];
-  const timeFilter = interval ? `AND a.created_at >= NOW() - INTERVAL '${interval}'` : '';
+  const timeFilter = interval ? `AND (a.created_at AT TIME ZONE 'UTC') >= NOW() - INTERVAL '${interval}'` : '';
 
   if (type === 'gateways') {
     // Placeholder: cuando se implementen alertas de desconexión en la tabla 'alerts'
@@ -153,7 +163,7 @@ export const getAlertHistory = (type, range) => {
 export const getAlertTimeline = async (range) => {
   const intervals = { '1h': '1 hour', '24h': '24 hours', '7d': '7 days', '30d': '30 days' };
   const interval = intervals[range];
-  const timeFilter = interval ? `AND a.created_at >= NOW() - INTERVAL '${interval}'` : '';
+  const timeFilter = interval ? `AND (a.created_at AT TIME ZONE 'UTC') >= NOW() - INTERVAL '${interval}'` : '';
 
   const result = await pool.query(`
     SELECT 

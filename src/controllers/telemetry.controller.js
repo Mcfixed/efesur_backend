@@ -55,3 +55,40 @@ export const getAllDeviceTypes = async (req, res, next) => {
     next(error);
   }
 };
+
+export const getSensorSummary = async (req, res, next) => {
+  try {
+    const summary = await telemetryService.getSensorSummaryService();
+    response.success(res, summary);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getDevicesList = async (req, res, next) => {
+  try {
+    const devices = await telemetryService.getDevicesListService();
+    response.success(res, devices);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getGpsDailyReview = async (req, res, next) => {
+  try {
+    const data = await telemetryService.getGpsDailyReviewService();
+    response.success(res, data);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getGpsDailyDetail = async (req, res, next) => {
+  try {
+    const { date } = req.params;
+    const data = await telemetryService.getGpsDailyDetailService(date);
+    response.success(res, data);
+  } catch (error) {
+    next(error);
+  }
+};

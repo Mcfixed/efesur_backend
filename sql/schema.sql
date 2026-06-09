@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id VARCHAR(255) PRIMARY KEY,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     token VARCHAR(255) UNIQUE NOT NULL,
     expires_at TIMESTAMP NOT NULL,
@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS sub_estacion_device (
 CREATE TABLE IF NOT EXISTS gateway_device (
     id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
     ip_internal VARCHAR(45),
+    battery INTEGER DEFAULT 100,
     firmware_version VARCHAR(50)
 );
 
@@ -145,7 +146,7 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_ts ON telemetry_data_all(ts DESC);
 CREATE TABLE IF NOT EXISTS alerts (
     id SERIAL PRIMARY KEY,
     device_id INTEGER REFERENCES devices(id) ON DELETE CASCADE,
-    type VARCHAR(20) NOT NULL CHECK (type IN ('atencion', 'critica')),
+    type VARCHAR(20) NOT NULL CHECK (type IN ('atencion', 'critica', 'desconexionGW', 'desconexionGPS')),
     status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'resolved')),
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     user_reason TEXT,
