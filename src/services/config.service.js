@@ -3,12 +3,20 @@ import bcrypt from 'bcryptjs';
 
 // ===== COMPANIES =====
 
-export const getAllCompaniesService = () => pool.query(`
-  SELECT c.*, 
-    (SELECT COUNT(*) FROM devices WHERE company_id = c.id) as device_count,
-    (SELECT COUNT(*) FROM companies_users WHERE company_id = c.id) as user_count
-  FROM companies c ORDER BY c.name
-`);
+export const getAllCompaniesService = (companyIds) => {
+  let whereClause = '';
+  const params = [];
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    whereClause = `WHERE c.id = ANY($${params.length}::int[])`;
+  }
+  return pool.query(`
+    SELECT c.*, 
+      (SELECT COUNT(*) FROM devices WHERE company_id = c.id) as device_count,
+      (SELECT COUNT(*) FROM companies_users WHERE company_id = c.id) as user_count
+    FROM companies c ${whereClause} ORDER BY c.name
+  `, params);
+};
 
 export const getCompanyByIdService = (id) => pool.query('SELECT * FROM companies WHERE id = $1', [id]);
 
@@ -42,28 +50,37 @@ export const deleteCompanyService = (id) => pool.query('DELETE FROM companies WH
 
 // ===== USERS =====
 
-export const getAllUsersService = () => pool.query(`
-  SELECT u.id, u.email, u.name, u.image, u.is_superuser, u.created_at,
-    COALESCE(json_agg(json_build_object(
-      'company_id', cu.company_id, 'company_name', c.name, 'role', cu.role, 'is_active', cu.is_active
-    )) FILTER (WHERE cu.company_id IS NOT NULL), '[]') as company_assignments
-  FROM users u
-  LEFT JOIN companies_users cu ON u.id = cu.user_id
-  LEFT JOIN companies c ON cu.company_id = c.id
-  GROUP BY u.id ORDER BY u.name
-`);
+export const getAllUsersService = (companyIds) => {
+  let companyFilter = '';
+  const params = [];
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` WHERE cu.company_id = ANY($${params.length}::int[])`;
+  }
+  return pool.query(`
+    SELECT u.id, u.email, u.name, u.image, u.role, u.created_at,
+      COALESCE(json_agg(json_build_object(
+        'company_id', cu.company_id, 'company_name', c.name, 'role', cu.role, 'is_active', cu.is_active
+      )) FILTER (WHERE cu.company_id IS NOT NULL), '[]') as company_assignments
+    FROM users u
+    LEFT JOIN companies_users cu ON u.id = cu.user_id
+    LEFT JOIN companies c ON cu.company_id = c.id
+    ${companyFilter}
+    GROUP BY u.id ORDER BY u.name
+  `, params);
+};
 
 export const getUserByIdService = (id) => pool.query('SELECT * FROM users WHERE id = $1', [id]);
 
-export const createUserService = async ({ email, name, is_superuser, password }) => {
+export const createUserService = async ({ email, name, role, password }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
     const userRes = await client.query(`
-      INSERT INTO users (email, name, is_superuser) VALUES ($1, $2, $3) 
-      RETURNING id, email, name, is_superuser, created_at
-    `, [email, name, is_superuser || false]);
+      INSERT INTO users (email, name, role) VALUES ($1, $2, $3) 
+      RETURNING id, email, name, role, created_at
+    `, [email, name, role || 'visualizador']);
     
     const user = userRes.rows[0];
 
@@ -92,7 +109,7 @@ export const updateUserService = (id, data) => {
 
   if (data.name !== undefined) { fields.push(`name = $${idx++}`); values.push(data.name); }
   if (data.image !== undefined) { fields.push(`image = $${idx++}`); values.push(data.image); }
-  if (data.is_superuser !== undefined) { fields.push(`is_superuser = $${idx++}`); values.push(data.is_superuser); }
+  if (data.role !== undefined) { fields.push(`role = $${idx++}`); values.push(data.role); }
 
   if (fields.length === 0) return pool.query('SELECT * FROM users WHERE id = $1', [id]);
 
@@ -158,10 +175,16 @@ const DEVICE_SPECIFIC_DATA = `
   END as specific_data
 `;
 
-export const getAllDevicesService = ({ companyId, type, isActive }) => {
+export const getAllDevicesService = ({ companyId, type, isActive, companyIds }) => {
   let whereClause = 'WHERE 1=1';
   const params = [];
 
+  // companyIds from middleware (user's allowed companies) — enforced restriction
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    whereClause += ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+  // Optional filter from query param — must be within user's companies
   if (companyId) {
     params.push(companyId);
     whereClause += ` AND d.company_id = $${params.length}`;
@@ -200,8 +223,11 @@ export const createDeviceService = async ({ dev_eui, name, company_id, id_device
 
     const deviceId = deviceResult.rows[0].id;
 
+    // Siempre crear registro específico según tipo, incluso sin specific_data
     if (specific_data) {
       await upsertSpecificData(client, deviceId, type_device, specific_data);
+    } else {
+      await upsertSpecificData(client, deviceId, type_device, {});
     }
 
     await client.query('COMMIT');
@@ -272,10 +298,10 @@ async function upsertSpecificData(client, deviceId, typeDevice, data) {
   switch (typeDevice) {
     case 'Gps':
       await client.query(`
-        INSERT INTO gps_device (id, accelerometers_status, battery, operating_mode)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (id) DO UPDATE SET accelerometers_status = $2, battery = $3, operating_mode = $4
-      `, [deviceId, data.accelerometers_status || 'normal', data.battery || 100, data.operating_mode || 'normal']);
+        INSERT INTO gps_device (id, accelerometers_status, battery, operating_mode, catenaria_linea, catenaria_orden)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (id) DO UPDATE SET accelerometers_status = $2, battery = $3, operating_mode = $4, catenaria_linea = $5, catenaria_orden = $6
+      `, [deviceId, data.accelerometers_status || 'normal', data.battery || 100, data.operating_mode || 'normal', data.catenaria_linea, data.catenaria_orden]);
       break;
     case 'SubEstacion':
       await client.query(`

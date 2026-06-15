@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     email_verified BOOLEAN DEFAULT false,
     name VARCHAR(255),
     image TEXT,
-    is_superuser BOOLEAN DEFAULT false,
+    role VARCHAR(20) DEFAULT 'visualizador',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -105,7 +105,9 @@ CREATE TABLE IF NOT EXISTS gps_device (
     id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
     accelerometers_status VARCHAR(50),
     battery INTEGER DEFAULT 100,
-    operating_mode VARCHAR(50) DEFAULT 'normal'
+    operating_mode VARCHAR(50) DEFAULT 'normal',
+    catenaria_linea VARCHAR(50),
+    catenaria_orden INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS sub_estacion_device (
@@ -146,8 +148,9 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_ts ON telemetry_data_all(ts DESC);
 CREATE TABLE IF NOT EXISTS alerts (
     id SERIAL PRIMARY KEY,
     device_id INTEGER REFERENCES devices(id) ON DELETE CASCADE,
-    type VARCHAR(20) NOT NULL CHECK (type IN ('atencion', 'critica', 'desconexionGW', 'desconexionGPS')),
+    type VARCHAR(20) NOT NULL CHECK (type IN ('atencion', 'critica', 'desconexionGW', 'desconexionGPS', 'movimientos_anomalos')),
     status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'resolved')),
+    status_system VARCHAR(20) DEFAULT 'active' CHECK (status_system IN ('active', 'resolved')),
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     user_reason TEXT,
     metadata JSONB,
@@ -170,3 +173,39 @@ CREATE TABLE IF NOT EXISTS tracking_alerts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tracking_alert ON tracking_alerts(alert_id);
+
+-- ─────────────────────────────────────────────
+-- 5. ÍNDICES ADICIONALES PARA RENDIMIENTO
+--    (Optimización multi-tenant y dashboard)
+-- ─────────────────────────────────────────────
+
+-- Acelera la consulta del middleware auth.js (companies del usuario)
+CREATE INDEX IF NOT EXISTS idx_companies_users_user_active
+  ON companies_users(user_id, is_active);
+
+-- Acelera el filtro por compañía en todas las queries del dashboard/telemetry
+CREATE INDEX IF NOT EXISTS idx_devices_company_active
+  ON devices(company_id, is_active);
+
+-- Acelera getAllGpsDevices() y getGatewayStatus() (filtran por type_device + company)
+CREATE INDEX IF NOT EXISTS idx_devices_type_company_active
+  ON devices(type_device, company_id, is_active);
+
+-- Acelera getDevicesLocations() (filtra por coordenadas no nulas)
+CREATE INDEX IF NOT EXISTS idx_devices_coords_active
+  ON devices(latitude_current, longitude_current)
+  WHERE is_active = true AND latitude_current IS NOT NULL;
+
+-- Acelera getCriticalAlerts() (filtra por type + status_system = 'active')
+CREATE INDEX IF NOT EXISTS idx_alerts_type_status_system
+  ON alerts(type, status_system)
+  WHERE status_system = 'active';
+
+-- Acelera getAtencionAlerts() y getDisconexionGWAlerts() (status = 'active')
+CREATE INDEX IF NOT EXISTS idx_alerts_type_status_active
+  ON alerts(type, status)
+  WHERE status = 'active';
+
+-- Acelera la subquery LATERAL dentro de getCriticalAlerts() (tracking por alert_id)
+CREATE INDEX IF NOT EXISTS idx_tracking_alert_timestamp
+  ON tracking_alerts(alert_id, timestamp DESC);

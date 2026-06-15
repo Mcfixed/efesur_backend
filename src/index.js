@@ -8,11 +8,21 @@ import { toNodeHandler } from 'better-auth/node';
 import config from './config/index.js';
 import { auth } from './config/auth.js';
 import { requireAuth } from './middleware/auth.js';
-import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { errorHandler, notFoundHandler, jsonErrorHandler } from './middleware/errorHandler.js';
 import pool from './config/database.js';
 import dashboardRouter from './routes/dashboard.routes.js';
 import telemetryRouter from './routes/telemetry.routes.js';
 import configRouter from './routes/config.routes.js';
+
+// ─── Global error handlers (evitan que el proceso muera) ───
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+  // Loggear pero no matar — el proceso sigue funcionando
+});
 
 const app = express();
 
@@ -83,6 +93,7 @@ app.all('/api/auth/*', toNodeHandler(auth));
 // JSON parsing — DESPUÉS del handler de better-auth
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(jsonErrorHandler); // Atrapa errores de JSON mal formado
 
 // Rutas protegidas (todas requieren autenticación)
 app.use('/api/dashboard', requireAuth, dashboardRouter);
@@ -100,8 +111,20 @@ const server = app.listen(config.port, () => {
 
 const gracefulShutdown = (signal) => {
   console.log(`\n${signal} received. Shutting down gracefully...`);
-  server.close(async () => {
-    console.log('HTTP server closed');
+
+  const forceExit = setTimeout(() => {
+    console.error('Forced shutdown after 30s');
+    process.exit(1);
+  }, 30000);
+  forceExit.unref(); // No mantiene el proceso vivo
+
+  server.close(async (err) => {
+    if (err) {
+      console.error('Error closing HTTP server:', err);
+    } else {
+      console.log('HTTP server closed');
+    }
+    clearTimeout(forceExit);
     try {
       await pool.end();
       console.log('Database pool closed');
@@ -110,11 +133,6 @@ const gracefulShutdown = (signal) => {
     }
     process.exit(0);
   });
-
-  setTimeout(() => {
-    console.error('Forced shutdown after 30s');
-    process.exit(1);
-  }, 30000);
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

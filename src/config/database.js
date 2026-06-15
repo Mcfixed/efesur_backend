@@ -15,7 +15,7 @@ const pool = new Pool({
   password: config.db.password,
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 5000,
 });
 
 // Configurar zona horaria Chile para todas las conexiones
@@ -27,7 +27,7 @@ pool.on('connect', (client) => {
 
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
-  process.exit(-1);
+  // No matamos el proceso — el pool reconecta automáticamente
 });
 
 export default pool;

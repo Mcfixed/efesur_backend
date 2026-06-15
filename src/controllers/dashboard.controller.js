@@ -3,22 +3,25 @@ import * as response from '../utils/response.js';
 
 export const getDashboardData = async (req, res, next) => {
   try {
-    const [gpsDevices, criticalAlerts, atencionAlerts] = await Promise.all([
-      dashboardService.getAllGpsDevices(),
-      dashboardService.getCriticalAlerts(),
-      dashboardService.getAtencionAlerts()
+    const [gpsDevices, criticalAlerts, atencionAlerts, desconexionAlerts] = await Promise.all([
+      dashboardService.getAllGpsDevices(req.userCompanyIds),
+      dashboardService.getCriticalAlerts(req.userCompanyIds),
+      dashboardService.getAtencionAlerts(req.userCompanyIds),
+      dashboardService.getDisconexionGWAlerts(req.userCompanyIds)
     ]);
 
     response.success(res, {
       summary: {
         totalGpsDevices: gpsDevices.rows.length,
         criticalAlertsCount: criticalAlerts.rows.length,
-        atencionAlertsCount: atencionAlerts.rows.length
+        atencionAlertsCount: atencionAlerts.rows.length,
+        desconexionGWCount: desconexionAlerts.rows.length,
       },
       devices: gpsDevices.rows,
       alerts: {
         critical: criticalAlerts.rows,
-        atencion: atencionAlerts.rows
+        atencion: atencionAlerts.rows,
+        desconexionGW: desconexionAlerts.rows,
       },
     });
   } catch (error) {
@@ -49,7 +52,7 @@ export const resolveAlert = async (req, res, next) => {
 
 export const getDevicesLocations = async (req, res, next) => {
   try {
-    const result = await dashboardService.getDevicesLocations();
+    const result = await dashboardService.getDevicesLocations(req.userCompanyIds);
     response.success(res, {
       count: result.rows.length,
       locations: result.rows
@@ -61,7 +64,7 @@ export const getDevicesLocations = async (req, res, next) => {
 
 export const getGatewayStatus = async (req, res, next) => {
   try {
-    const result = await dashboardService.getGatewayStatus();
+    const result = await dashboardService.getGatewayStatus(req.userCompanyIds);
     response.success(res, {
       count: result.rows.length,
       gateways: result.rows
@@ -84,7 +87,7 @@ export const getAlertHistory = async (req, res, next) => {
       return response.badRequest(res, 'Invalid range');
     }
 
-    const result = await dashboardService.getAlertHistory(type, range);
+    const result = await dashboardService.getAlertHistory(type, range, req.userCompanyIds);
     response.success(res, {
       count: result.rows.length,
       alerts: result.rows
@@ -102,7 +105,7 @@ export const getAlertTimeline = async (req, res, next) => {
       return response.badRequest(res, 'Invalid range');
     }
 
-    const result = await dashboardService.getAlertTimeline(range);
+    const result = await dashboardService.getAlertTimeline(range, req.userCompanyIds);
 
     const criticalActive = result.rows.filter(r => r.priority === 0).length;
     const atencionActive = result.rows.filter(r => r.priority === 1).length;

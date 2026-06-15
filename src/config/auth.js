@@ -15,10 +15,10 @@ export const auth = betterAuth({
       updatedAt: 'updated_at'
     },
     additionalFields: {
-      is_superuser: {
-        type: 'boolean',
+      role: {
+        type: 'string',
         required: false,
-        defaultValue: false,
+        defaultValue: 'visualizador',
       },
     },
   },

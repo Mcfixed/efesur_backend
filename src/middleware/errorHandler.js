@@ -1,3 +1,12 @@
+// Middleware para atrapar errores de JSON mal formado
+export const jsonErrorHandler = (err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    console.warn('Malformed JSON:', err.message);
+    return res.status(400).json({ error: 'Invalid JSON in request body' });
+  }
+  next(err);
+};
+
 export const errorHandler = (err, req, res, next) => {
   // PostgreSQL specific errors
   if (err.code === '23505') {

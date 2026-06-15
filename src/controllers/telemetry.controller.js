@@ -4,7 +4,7 @@ import * as response from '../utils/response.js';
 export const searchDevices = async (req, res, next) => {
   try {
     const { q, type, companyId, limit = 50, offset = 0 } = req.query;
-    const result = await telemetryService.searchDevicesService({ q, type, companyId, limit, offset });
+    const result = await telemetryService.searchDevicesService({ q, type, companyId, companyIds: req.userCompanyIds, limit, offset });
     response.paginatedSuccess(
       res,
       result.devices,
@@ -58,7 +58,7 @@ export const getAllDeviceTypes = async (req, res, next) => {
 
 export const getSensorSummary = async (req, res, next) => {
   try {
-    const summary = await telemetryService.getSensorSummaryService();
+    const summary = await telemetryService.getSensorSummaryService(req.userCompanyIds);
     response.success(res, summary);
   } catch (error) {
     next(error);
@@ -67,7 +67,7 @@ export const getSensorSummary = async (req, res, next) => {
 
 export const getDevicesList = async (req, res, next) => {
   try {
-    const devices = await telemetryService.getDevicesListService();
+    const devices = await telemetryService.getDevicesListService(req.userCompanyIds);
     response.success(res, devices);
   } catch (error) {
     next(error);
@@ -76,7 +76,7 @@ export const getDevicesList = async (req, res, next) => {
 
 export const getGpsDailyReview = async (req, res, next) => {
   try {
-    const data = await telemetryService.getGpsDailyReviewService();
+    const data = await telemetryService.getGpsDailyReviewService(req.userCompanyIds);
     response.success(res, data);
   } catch (error) {
     next(error);
@@ -86,7 +86,16 @@ export const getGpsDailyReview = async (req, res, next) => {
 export const getGpsDailyDetail = async (req, res, next) => {
   try {
     const { date } = req.params;
-    const data = await telemetryService.getGpsDailyDetailService(date);
+    const data = await telemetryService.getGpsDailyDetailService(date, req.userCompanyIds);
+    response.success(res, data);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAllDevicesReport = async (req, res, next) => {
+  try {
+    const data = await telemetryService.getAllDevicesLastTelemetryService(req.userCompanyIds);
     response.success(res, data);
   } catch (error) {
     next(error);

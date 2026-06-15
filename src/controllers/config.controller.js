@@ -4,7 +4,7 @@ import * as response from '../utils/response.js';
 // ===== COMPANIES =====
 export const getCompanies = async (req, res, next) => {
   try {
-    const result = await configService.getAllCompaniesService();
+    const result = await configService.getAllCompaniesService(req.userCompanyIds);
     response.success(res, result.rows);
   } catch (error) {
     next(error);
@@ -59,7 +59,7 @@ export const deleteCompany = async (req, res, next) => {
 // ===== USERS =====
 export const getUsers = async (req, res, next) => {
   try {
-    const result = await configService.getAllUsersService();
+    const result = await configService.getAllUsersService(req.userCompanyIds);
     response.success(res, result.rows);
   } catch (error) {
     next(error);
@@ -174,7 +174,7 @@ export const updateCompanyConfig = async (req, res, next) => {
 export const getDevices = async (req, res, next) => {
   try {
     const { companyId, type, isActive } = req.query;
-    const result = await configService.getAllDevicesService({ companyId, type, isActive });
+    const result = await configService.getAllDevicesService({ companyId, type, isActive, companyIds: req.userCompanyIds });
     response.success(res, result.rows);
   } catch (error) {
     next(error);

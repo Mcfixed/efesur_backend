@@ -7,7 +7,7 @@ const clampInt = (value, defaultVal, min, max) => {
   return parsed > max ? max : parsed;
 };
 
-export const searchDevicesService = async ({ q, type, companyId, limit = PAGINATION.DEFAULT_LIMIT, offset = PAGINATION.DEFAULT_OFFSET }) => {
+export const searchDevicesService = async ({ q, type, companyId, companyIds, limit = PAGINATION.DEFAULT_LIMIT, offset = PAGINATION.DEFAULT_OFFSET }) => {
   let whereClause = 'WHERE d.is_active = true';
   const params = [];
   let paramIndex = 1;
@@ -22,6 +22,13 @@ export const searchDevicesService = async ({ q, type, companyId, limit = PAGINAT
     params.push(type);
     paramIndex++;
   }
+  // companyIds from middleware (user's allowed companies)
+  if (companyIds && companyIds.length) {
+    whereClause += ` AND d.company_id = ANY($${paramIndex}::int[])`;
+    params.push(companyIds);
+    paramIndex++;
+  }
+  // Optional filter from query param — must be within user's companies
   if (companyId) {
     whereClause += ` AND d.company_id = $${paramIndex}`;
     params.push(companyId);
@@ -120,7 +127,14 @@ export const getAllDeviceTypesService = () => pool.query(
 );
 
 // ─── Resumen de sensores por tipo ──────────────────────────
-export const getSensorSummaryService = async () => {
+export const getSensorSummaryService = async (companyIds) => {
+  let companyFilter = '';
+  const params = [];
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+
   const [byType, opModes] = await Promise.all([
     pool.query(`
       SELECT 
@@ -132,19 +146,19 @@ export const getSensorSummaryService = async () => {
              OR (type_device != 'Gateway' AND last_seen < NOW() - INTERVAL '12 hours')
         )::int as disconnected
       FROM devices 
-      WHERE is_active = true
+      WHERE is_active = true ${companyFilter}
       GROUP BY type_device
       ORDER BY type_device
-    `),
-    // Operating modes de dispositivos GPS (desde la tabla gps_device)
+    `, params),
+    // Operating modes de dispositivos GPS
     pool.query(`
       SELECT COALESCE(g.operating_mode, 'sin datos') as mode, COUNT(*)::int as count
       FROM devices d
       LEFT JOIN gps_device g ON d.id = g.id
-      WHERE d.type_device = 'Gps' AND d.is_active = true
+      WHERE d.type_device = 'Gps' AND d.is_active = true ${companyFilter}
       GROUP BY g.operating_mode
       ORDER BY count DESC
-    `),
+    `, params),
   ]);
 
   return {
@@ -154,32 +168,52 @@ export const getSensorSummaryService = async () => {
 };
 
 // ─── Lista completa de dispositivos activos ────────────────
-export const getDevicesListService = async () => {
+export const getDevicesListService = async (companyIds) => {
+  const params = [];
+  let companyFilter = '';
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
   const result = await pool.query(`
     SELECT d.id, d.dev_eui, d.name, d.type_device, d.is_active, d.last_seen, d.company_id,
            c.name as company_name,
-           g.battery
+           last_rx.voltage_mV,
+           g.battery as battery_pct
     FROM devices d
     LEFT JOIN companies c ON d.company_id = c.id
     LEFT JOIN gps_device g ON d.id = g.id
-    WHERE d.is_active = true
+    LEFT JOIN LATERAL (
+      SELECT (t.object->>'voltage_mV')::numeric as voltage_mV
+      FROM telemetry_data_all t
+      WHERE t.device_id = d.id AND t.object IS NOT NULL
+      ORDER BY t.ts DESC LIMIT 1
+    ) last_rx ON true
+    WHERE d.is_active = true ${companyFilter}
     ORDER BY d.type_device, d.name
     LIMIT 1000
-  `);
+  `, params);
   return result.rows;
 };
 
 // ─── Revisión diaria GPS ───────────────────────────────────
-export const getGpsDailyReviewService = async () => {
+export const getGpsDailyReviewService = async (companyIds) => {
+  let companyFilter = '';
+  const params = [];
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+
   const result = await pool.query(`
     WITH days AS (
       SELECT DISTINCT DATE(ts) as review_date 
       FROM telemetry_data_all t
       JOIN devices d ON t.device_id = d.id
-      WHERE d.type_device = 'Gps'
+      WHERE d.type_device = 'Gps'${companyFilter}
     ),
     all_gps AS (
-      SELECT COUNT(*)::int as cnt FROM devices WHERE type_device = 'Gps' AND is_active = true
+      SELECT COUNT(*)::int as cnt FROM devices WHERE type_device = 'Gps' AND is_active = true${companyFilter.replaceAll('d.company_id', 'company_id')}
     ),
     daily_stats AS (
       SELECT 
@@ -196,7 +230,7 @@ export const getGpsDailyReviewService = async () => {
         )::int as mala
       FROM telemetry_data_all t
       JOIN devices d ON t.device_id = d.id
-      WHERE d.type_device = 'Gps'
+      WHERE d.type_device = 'Gps'${companyFilter}
       GROUP BY DATE(t.ts)
     )
     SELECT 
@@ -210,19 +244,28 @@ export const getGpsDailyReviewService = async () => {
     LEFT JOIN daily_stats s ON d.review_date = s.review_date
     ORDER BY d.review_date DESC
     LIMIT 30
-  `);
+  `, params);
   return result.rows;
 };
 
 // ─── Detalle por día: estado de cada sensor GPS ───────────
-export const getGpsDailyDetailService = async (date) => {
+export const getGpsDailyDetailService = async (date, companyIds) => {
+  let companyFilter = '';
+  let companyFilterTelemetry = '';
+  const params = [date];
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+    companyFilterTelemetry = ` AND d2.company_id = ANY($${params.length}::int[])`;
+  }
   const result = await pool.query(`
     WITH device_voltage AS (
       SELECT DISTINCT ON (t.device_id)
         t.device_id,
         (t.object->>'voltage_mV')::numeric as voltage_mV
       FROM telemetry_data_all t
-      WHERE DATE(t.ts) = $1 AND t.object IS NOT NULL
+      JOIN devices d2 ON t.device_id = d2.id
+      WHERE DATE(t.ts) = $1 AND t.object IS NOT NULL AND d2.type_device = 'Gps'${companyFilterTelemetry}
     )
     SELECT 
       d.id, d.name, d.dev_eui, d.last_seen,
@@ -235,8 +278,43 @@ export const getGpsDailyDetailService = async (date) => {
       END as estado_bateria
     FROM devices d
     LEFT JOIN device_voltage dv ON d.id = dv.device_id
-    WHERE d.type_device = 'Gps' AND d.is_active = true
+    WHERE d.type_device = 'Gps' AND d.is_active = true${companyFilter}
     ORDER BY d.name
-  `, [date]);
+  `, params);
   return { date, devices: result.rows };
+};
+
+// ─── Todos los dispositivos con su último dato completo ──
+export const getAllDevicesLastTelemetryService = async (companyIds) => {
+  let companyFilter = '';
+  const params = [];
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+  const result = await pool.query(`
+    WITH latest AS (
+      SELECT DISTINCT ON (t.device_id)
+        t.device_id, t.ts, t.object, t.rxinfo
+      FROM telemetry_data_all t
+      ORDER BY t.device_id, t.ts DESC
+    )
+    SELECT 
+      d.id, d.dev_eui, d.name, d.type_device, d.is_active, d.last_seen,
+      c.name as company_name,
+      g.operating_mode, g.battery as battery_pct,
+      gw.firmware_version, gw.ip_internal,
+      l.ts as last_telemetry_ts,
+      l.object,
+      l.rxinfo
+    FROM devices d
+    LEFT JOIN companies c ON d.company_id = c.id
+    LEFT JOIN gps_device g ON d.id = g.id
+    LEFT JOIN gateway_device gw ON d.id = gw.id
+    LEFT JOIN latest l ON d.id = l.device_id
+    WHERE 1=1 ${companyFilter}
+    ORDER BY d.type_device, d.name
+    LIMIT 1000
+  `, params);
+  return result.rows;
 };

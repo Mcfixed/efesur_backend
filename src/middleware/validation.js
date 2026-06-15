@@ -33,13 +33,13 @@ export const userValidation = {
   create: [
     body('email').isEmail().withMessage('Valid email required'),
     body('name').trim().notEmpty().withMessage('Name is required'),
-    body('is_superuser').optional().isBoolean(),
+    body('role').optional().isIn(['superadmin', 'admin_efe', 'visualizador']),
   ],
   update: [
     param('id').isUUID().withMessage('Invalid user ID'),
     body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
     body('image').optional().isURL().withMessage('Image must be a valid URL'),
-    body('is_superuser').optional().isBoolean(),
+    body('role').optional().isIn(['superadmin', 'admin_efe', 'visualizador']),
   ],
   assignCompany: [
     body('userId').isUUID().withMessage('Valid user ID required'),
