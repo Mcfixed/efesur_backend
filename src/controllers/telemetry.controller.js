@@ -93,9 +93,38 @@ export const getGpsDailyDetail = async (req, res, next) => {
   }
 };
 
+export const getLatestTelemetry = async (req, res, next) => {
+  try {
+    const { limit = 50 } = req.query;
+    const data = await telemetryService.getLatestTelemetryService(limit, req.userCompanyIds);
+    response.success(res, data);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getGatewayPositions = async (req, res, next) => {
+  try {
+    const data = await telemetryService.getGatewayPositionsService(req.userCompanyIds);
+    response.success(res, data);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAllDevicesReport = async (req, res, next) => {
   try {
     const data = await telemetryService.getAllDevicesLastTelemetryService(req.userCompanyIds);
+    response.success(res, data);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getDeviceAlerts = async (req, res, next) => {
+  try {
+    const { deviceId } = req.params;
+    const data = await telemetryService.getDeviceAlertsService(deviceId, req.userCompanyIds);
     response.success(res, data);
   } catch (error) {
     next(error);

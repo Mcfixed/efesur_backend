@@ -110,6 +110,27 @@ export const getDisconexionGWAlerts = (companyIds) => {
   `, params);
 };
 
+export const getMovimientosAnomalosAlerts = (companyIds) => {
+  const params = ['movimientos_anomalos'];
+  let companyFilter = '';
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+  return pool.query(`
+    SELECT 
+      a.id, a.device_id, a.type, a.status, a.metadata, a.created_at,
+      d.name as device_name, d.latitude_current, d.longitude_current
+    FROM alerts a
+    JOIN devices d ON a.device_id = d.id
+    WHERE a.type = $1 AND a.status = 'active'
+      AND (a.status_system IS NULL OR a.status_system = 'active')
+      AND (a.created_at AT TIME ZONE 'UTC') >= NOW() - INTERVAL '15 minutes'${companyFilter}
+    ORDER BY a.created_at DESC
+    LIMIT 500
+  `, params);
+};
+
 export const resolveAlertById = (id, userId, reason) => pool.query(`
   UPDATE alerts 
   SET status_system = $1, user_id = $2, user_reason = $3, resolved_at = NOW()
@@ -138,6 +159,7 @@ export const getDevicesLocations = (companyIds) => {
       FROM alerts 
       WHERE (type = 'atencion' AND status = $2)
          OR (type = 'critica' AND status_system = 'active')
+         OR (type = 'movimientos_anomalos' AND status = 'active')
       ORDER BY device_id, created_at DESC
     ) a ON d.id = a.device_id
     WHERE d.type_device = $1 AND d.is_active = true
@@ -247,13 +269,14 @@ export const getAlertTimeline = async (range, companyIds) => {
       d.name as device_name, d.dev_eui,
       CASE 
         WHEN a.type = 'critica' AND a.status_system = 'active' THEN 0
-        WHEN a.type = 'atencion' AND a.status = 'active' THEN 1
-        ELSE 2
+        WHEN a.type = 'movimientos_anomalos' AND a.status = 'active' THEN 1
+        WHEN a.type = 'atencion' AND a.status = 'active' THEN 2
+        ELSE 3
       END as priority,
       a.status as alert_status
     FROM alerts a
     JOIN devices d ON a.device_id = d.id
-    WHERE (a.type = 'critica' OR a.type = 'atencion')
+    WHERE (a.type = 'critica' OR a.type = 'atencion' OR a.type = 'movimientos_anomalos')
       ${timeFilter}${companyFilter}
     ORDER BY priority ASC, a.created_at DESC
     LIMIT 500

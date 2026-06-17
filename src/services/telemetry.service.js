@@ -177,6 +177,7 @@ export const getDevicesListService = async (companyIds) => {
   }
   const result = await pool.query(`
     SELECT d.id, d.dev_eui, d.name, d.type_device, d.is_active, d.last_seen, d.company_id,
+           d.latitude_current, d.longitude_current,
            c.name as company_name,
            last_rx.voltage_mV,
            g.battery as battery_pct
@@ -189,7 +190,7 @@ export const getDevicesListService = async (companyIds) => {
       WHERE t.device_id = d.id AND t.object IS NOT NULL
       ORDER BY t.ts DESC LIMIT 1
     ) last_rx ON true
-    WHERE d.is_active = true ${companyFilter}
+    WHERE 1=1 ${companyFilter}
     ORDER BY d.type_device, d.name
     LIMIT 1000
   `, params);
@@ -315,6 +316,71 @@ export const getAllDevicesLastTelemetryService = async (companyIds) => {
     WHERE 1=1 ${companyFilter}
     ORDER BY d.type_device, d.name
     LIMIT 1000
+  `, params);
+  return result.rows;
+};
+
+// ─── Gateways con posición para mapa ──────────────────
+export const getGatewayPositionsService = async (companyIds) => {
+  const params = ['Gateway'];
+  let companyFilter = '';
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+  const result = await pool.query(`
+    SELECT d.id, d.dev_eui, d.name, d.latitude_current, d.longitude_current
+    FROM devices d
+    WHERE d.type_device = $1 AND d.is_active = true
+      AND d.latitude_current IS NOT NULL AND d.longitude_current IS NOT NULL
+      ${companyFilter}
+    ORDER BY d.name
+  `, params);
+  return result.rows;
+};
+
+// ─── Alertas por dispositivo ───────────────────────────
+export const getDeviceAlertsService = async (deviceId, companyIds) => {
+  const params = [deviceId];
+  let companyFilter = '';
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+  const result = await pool.query(`
+    SELECT 
+      a.id, a.device_id, a.type, a.status, a.status_system, a.metadata, 
+      a.created_at, a.resolved_at, a.user_reason,
+      u.name as resolved_by_name
+    FROM alerts a
+    JOIN devices d ON a.device_id = d.id
+    LEFT JOIN users u ON a.user_id = u.id
+    WHERE a.device_id = $1${companyFilter}
+    ORDER BY a.created_at DESC
+    LIMIT 200
+  `, params);
+  return result.rows;
+};
+
+// ─── Últimos datos entrantes (todos los dispositivos) ──
+export const getLatestTelemetryService = async (limit = 50, companyIds) => {
+  const params = [];
+  let companyFilter = '';
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+  const limitInt = Math.min(Math.max(1, parseInt(limit)), 100);
+  params.push(limitInt);
+  const result = await pool.query(`
+    SELECT 
+      t.id, t.device_id, t.ts, t.object, t.rxinfo,
+      d.name as device_name, d.dev_eui, d.type_device
+    FROM telemetry_data_all t
+    JOIN devices d ON t.device_id = d.id
+    WHERE 1=1${companyFilter}
+    ORDER BY t.ts DESC
+    LIMIT $${params.length}
   `, params);
   return result.rows;
 };

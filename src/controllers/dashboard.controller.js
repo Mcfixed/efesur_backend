@@ -3,11 +3,12 @@ import * as response from '../utils/response.js';
 
 export const getDashboardData = async (req, res, next) => {
   try {
-    const [gpsDevices, criticalAlerts, atencionAlerts, desconexionAlerts] = await Promise.all([
+    const [gpsDevices, criticalAlerts, atencionAlerts, desconexionAlerts, movimientosAnomalos] = await Promise.all([
       dashboardService.getAllGpsDevices(req.userCompanyIds),
       dashboardService.getCriticalAlerts(req.userCompanyIds),
       dashboardService.getAtencionAlerts(req.userCompanyIds),
-      dashboardService.getDisconexionGWAlerts(req.userCompanyIds)
+      dashboardService.getDisconexionGWAlerts(req.userCompanyIds),
+      dashboardService.getMovimientosAnomalosAlerts(req.userCompanyIds)
     ]);
 
     response.success(res, {
@@ -16,12 +17,14 @@ export const getDashboardData = async (req, res, next) => {
         criticalAlertsCount: criticalAlerts.rows.length,
         atencionAlertsCount: atencionAlerts.rows.length,
         desconexionGWCount: desconexionAlerts.rows.length,
+        movimientosAnomalosCount: movimientosAnomalos.rows.length,
       },
       devices: gpsDevices.rows,
       alerts: {
         critical: criticalAlerts.rows,
         atencion: atencionAlerts.rows,
         desconexionGW: desconexionAlerts.rows,
+        movimientos_anomalos: movimientosAnomalos.rows,
       },
     });
   } catch (error) {
@@ -77,7 +80,7 @@ export const getGatewayStatus = async (req, res, next) => {
 export const getAlertHistory = async (req, res, next) => {
   try {
     const { type, range } = req.query;
-    const validTypes = ['critica', 'atencion', 'gateways'];
+    const validTypes = ['critica', 'atencion', 'gateways', 'movimientos_anomalos'];
     const validRanges = ['1h', '24h', '7d', '30d', 'total'];
 
     if (!validTypes.includes(type)) {
@@ -108,12 +111,13 @@ export const getAlertTimeline = async (req, res, next) => {
     const result = await dashboardService.getAlertTimeline(range, req.userCompanyIds);
 
     const criticalActive = result.rows.filter(r => r.priority === 0).length;
-    const atencionActive = result.rows.filter(r => r.priority === 1).length;
-    const resolvedCount = result.rows.filter(r => r.priority === 2).length;
+    const movimientosActive = result.rows.filter(r => r.priority === 1).length;
+    const atencionActive = result.rows.filter(r => r.priority === 2).length;
+    const resolvedCount = result.rows.filter(r => r.priority === 3).length;
 
     response.success(res, {
       total: result.rows.length,
-      summary: { criticalActive, atencionActive, resolved: resolvedCount },
+      summary: { criticalActive, movimientosActive, atencionActive, resolved: resolvedCount },
       alerts: result.rows,
     });
   } catch (error) {
