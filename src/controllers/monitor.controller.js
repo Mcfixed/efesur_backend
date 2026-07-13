@@ -2,7 +2,7 @@ import {
   getMonitorSummaryService, getMonitorActiveSensorsService, getMonitorAlertsPerDayService,
   getMonitorCalendarService, getMonitorAlertsByDateService, getMonitorDevicesService,
   getMonitorDeviceTelemetryService, getMonitorDeviceAlertsService, getMonitorGatewayPositionsService,
-  getMonitorAlertTrackingService,
+  getMonitorAlertTrackingService, getMonitorLatestTelemetryService,
 } from '../services/monitor.service.js';
 import { success } from '../utils/response.js';
 
@@ -52,5 +52,10 @@ export const getGatewayPositions = async (req, res, next) => {
 };
 export const getAlertTracking = async (req, res, next) => {
   try { const { id } = req.params; const data = await getMonitorAlertTrackingService(parseInt(id)); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getLatestTelemetry = async (req, res, next) => {
+  try { const { limit } = req.query; const data = await getMonitorLatestTelemetryService(parseInt(limit) || 30, req.userCompanyIds); success(res, data); }
   catch (e) { next(e); }
 };

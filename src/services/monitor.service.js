@@ -102,6 +102,21 @@ export const getMonitorAlertTrackingService = async (alertId) => {
   return r.rows;
 };
 
+// ─── Últimos datos entrantes ──
+export const getMonitorLatestTelemetryService = async (limit = 30, companyIds) => {
+  let filter = ''; const p = [limit];
+  if (companyIds?.length) { p.push(companyIds); filter = ` AND d.company_id = ANY($${p.length}::int[])`; }
+  const r = await pool.query(`
+    SELECT t.id, t.ts, t.object, t.rxinfo, t.device_id,
+      d.name as device_name, d.type_device, d.dev_eui
+    FROM telemetry_data_all t
+    JOIN devices d ON t.device_id = d.id
+    WHERE d.is_active = true${filter}
+    ORDER BY t.ts DESC LIMIT $1
+  `, p);
+  return r.rows;
+};
+
 // ─── Dispositivos GPS activos ──
 export const getMonitorDevicesService = async (companyIds) => {
   let filter = ''; const p = [];
