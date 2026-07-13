@@ -1,0 +1,56 @@
+import {
+  getMonitorSummaryService, getMonitorActiveSensorsService, getMonitorAlertsPerDayService,
+  getMonitorCalendarService, getMonitorAlertsByDateService, getMonitorDevicesService,
+  getMonitorDeviceTelemetryService, getMonitorDeviceAlertsService, getMonitorGatewayPositionsService,
+  getMonitorAlertTrackingService,
+} from '../services/monitor.service.js';
+import { success } from '../utils/response.js';
+
+export const getSummary = async (req, res, next) => {
+  try { const data = await getMonitorSummaryService(req.userCompanyIds); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getActiveSensors = async (req, res, next) => {
+  try { const data = await getMonitorActiveSensorsService(req.userCompanyIds); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getAlertsPerDay = async (req, res, next) => {
+  try { const data = await getMonitorAlertsPerDayService(req.userCompanyIds); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getCalendar = async (req, res, next) => {
+  try { const { year, month } = req.query; const data = await getMonitorCalendarService(req.userCompanyIds, parseInt(year), parseInt(month)); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getAlertsByDate = async (req, res, next) => {
+  try { const { date } = req.query; const data = await getMonitorAlertsByDateService(req.userCompanyIds, date); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getDevices = async (req, res, next) => {
+  try { const data = await getMonitorDevicesService(req.userCompanyIds); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getDeviceTelemetry = async (req, res, next) => {
+  try { const { id } = req.params; const { from, limit, offset } = req.query; const data = await getMonitorDeviceTelemetryService(parseInt(id), { from, limit: parseInt(limit) || 200, offset: parseInt(offset) || 0 }); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getDeviceAlerts = async (req, res, next) => {
+  try { const { id } = req.params; const data = await getMonitorDeviceAlertsService(parseInt(id)); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getGatewayPositions = async (req, res, next) => {
+  try { const data = await getMonitorGatewayPositionsService(); success(res, data); }
+  catch (e) { next(e); }
+};
+export const getAlertTracking = async (req, res, next) => {
+  try { const { id } = req.params; const data = await getMonitorAlertTrackingService(parseInt(id)); success(res, data); }
+  catch (e) { next(e); }
+};

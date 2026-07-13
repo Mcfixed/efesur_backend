@@ -20,8 +20,8 @@ export const searchDevices = async (req, res, next) => {
 export const getDeviceTelemetry = async (req, res, next) => {
   try {
     const { deviceId } = req.params;
-    const { from, to, limit = 100 } = req.query;
-    const result = await telemetryService.getDeviceTelemetryService(deviceId, { from, to, limit });
+    const { from, to, limit = 100, offset } = req.query;
+    const result = await telemetryService.getDeviceTelemetryService(deviceId, { from, to, limit, offset });
     response.success(res, {
       telemetry: result.telemetry,
       stats: result.stats,

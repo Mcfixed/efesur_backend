@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth';
 import bcrypt from 'bcryptjs';
 import pool from './database.js';
 import config from './index.js';
+import { log } from '../services/audit.service.js';
 
 import { randomUUID } from 'crypto';
 
@@ -66,6 +67,42 @@ export const auth = betterAuth({
   secret: config.betterAuth.secret,
   baseURL: config.betterAuth.url,
   trustedOrigins: config.allowedOrigins,
+  databaseHooks: {
+    session: {
+      create: {
+        after: async (session) => {
+          let userName = null;
+          try {
+            const res = await pool.query('SELECT name FROM users WHERE id = $1', [session.userId]);
+            userName = res.rows[0]?.name || null;
+          } catch {}
+          log({
+            userId: session.userId,
+            userName,
+            action: 'login',
+            details: { sessionId: session.id },
+            ip: session.ipAddress,
+          });
+        },
+      },
+      delete: {
+        after: async (session) => {
+          let userName = null;
+          try {
+            const res = await pool.query('SELECT name FROM users WHERE id = $1', [session.userId]);
+            userName = res.rows[0]?.name || null;
+          } catch {}
+          log({
+            userId: session.userId,
+            userName,
+            action: 'logout',
+            details: { sessionId: session.id },
+            ip: session.ipAddress,
+          });
+        },
+      },
+    },
+  },
   advanced: {
     generateId: () => randomUUID(),
   },

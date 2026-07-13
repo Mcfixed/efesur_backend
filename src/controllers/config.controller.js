@@ -1,5 +1,6 @@
 import * as configService from '../services/config.service.js';
 import * as response from '../utils/response.js';
+import { log } from '../services/audit.service.js';
 
 // ===== COMPANIES =====
 export const getCompanies = async (req, res, next) => {
@@ -26,6 +27,7 @@ export const getCompany = async (req, res, next) => {
 export const createCompany = async (req, res, next) => {
   try {
     const result = await configService.createCompanyService(req.body);
+    log({ userId: req.user?.id, userName: req.user?.name, action: 'create_company', details: { name: req.body.name }, ip: req.ip });
     response.created(res, result.rows[0]);
   } catch (error) {
     next(error);
@@ -38,6 +40,7 @@ export const updateCompany = async (req, res, next) => {
     if (!result.rows || result.rows.length === 0) {
       return response.notFound(res, 'Company not found');
     }
+    log({ userId: req.user?.id, userName: req.user?.name, action: 'update_company', details: { id: req.params.id, changes: req.body }, ip: req.ip });
     response.success(res, result.rows[0]);
   } catch (error) {
     next(error);
@@ -50,7 +53,8 @@ export const deleteCompany = async (req, res, next) => {
     if (result.rowCount === 0) {
       return response.notFound(res, 'Company not found');
     }
-    res.status(204).send();
+    log({ userId: req.user?.id, userName: req.user?.name, action: 'delete_company', details: { id: req.params.id }, ip: req.ip });
+    response.success(res, { message: 'Company deleted' });
   } catch (error) {
     next(error);
   }
@@ -81,6 +85,7 @@ export const getUser = async (req, res, next) => {
 export const createUser = async (req, res, next) => {
   try {
     const result = await configService.createUserService(req.body);
+    log({ userId: req.user?.id, userName: req.user?.name, action: 'create_user', details: { email: req.body.email }, ip: req.ip });
     response.created(res, result.rows[0]);
   } catch (error) {
     next(error);
@@ -93,6 +98,7 @@ export const updateUser = async (req, res, next) => {
     if (!result.rows || result.rows.length === 0) {
       return response.notFound(res, 'User not found');
     }
+    log({ userId: req.user?.id, userName: req.user?.name, action: 'update_user', details: { id: req.params.id, changes: { email: req.body.email, name: req.body.name } }, ip: req.ip });
     response.success(res, result.rows[0]);
   } catch (error) {
     next(error);
@@ -105,6 +111,7 @@ export const deleteUser = async (req, res, next) => {
     if (result.rowCount === 0) {
       return response.notFound(res, 'User not found');
     }
+    log({ userId: req.user?.id, userName: req.user?.name, action: 'delete_user', details: { id: req.params.id }, ip: req.ip });
     res.status(204).send();
   } catch (error) {
     next(error);
@@ -196,6 +203,7 @@ export const getDevice = async (req, res, next) => {
 export const createDevice = async (req, res, next) => {
   try {
     const result = await configService.createDeviceService(req.body);
+    log({ userId: req.user?.id, userName: req.user?.name, action: 'create_device', details: { name: req.body.name, dev_eui: req.body.dev_eui }, ip: req.ip });
     response.created(res, result.rows[0]);
   } catch (error) {
     next(error);
@@ -208,6 +216,7 @@ export const updateDevice = async (req, res, next) => {
     if (!result.rows || result.rows.length === 0) {
       return response.notFound(res, 'Device not found');
     }
+    log({ userId: req.user?.id, userName: req.user?.name, action: 'update_device', details: { id: req.params.id, changes: { name: req.body.name } }, ip: req.ip });
     response.success(res, result.rows[0]);
   } catch (error) {
     next(error);
@@ -220,6 +229,7 @@ export const deleteDevice = async (req, res, next) => {
     if (result.rowCount === 0) {
       return response.notFound(res, 'Device not found');
     }
+    log({ userId: req.user?.id, userName: req.user?.name, action: 'delete_device', details: { id: req.params.id }, ip: req.ip });
     res.status(204).send();
   } catch (error) {
     next(error);

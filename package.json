@@ -9,6 +9,8 @@
     "start": "node src/index.js"
   },
   "dependencies": {
+    "@chirpstack/chirpstack-api": "^4.19.0",
+    "@grpc/grpc-js": "^1.14.4",
     "bcryptjs": "^2.4.3",
     "better-auth": "^1.2.8",
     "compression": "^1.7.4",

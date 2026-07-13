@@ -13,6 +13,10 @@ import pool from './config/database.js';
 import dashboardRouter from './routes/dashboard.routes.js';
 import telemetryRouter from './routes/telemetry.routes.js';
 import configRouter from './routes/config.routes.js';
+import statusRouter from './routes/status.routes.js';
+import chirpstackRouter from './routes/chirpstack.routes.js';
+import auditRouter from './routes/audit.routes.js';
+import monitorRouter from './routes/monitor.routes.js';
 
 // ─── Global error handlers (evitan que el proceso muera) ───
 process.on('unhandledRejection', (reason, promise) => {
@@ -51,7 +55,7 @@ const limiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 300,
+  max: 99999,
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Too many authentication attempts',
@@ -66,8 +70,12 @@ const searchLimiter = rateLimit({
   message: 'Demasiadas búsquedas. Intenta de nuevo en 15 minutos.',
 });
 
-app.use('/api', limiter);
+// Auth routes first — NO pasan por el limitador general (evita 429 en sesión)
 app.use('/api/auth', authLimiter);
+app.all('/api/auth/*', toNodeHandler(auth));
+
+// Limitador general para el resto de /api (telemetry, dashboard, config)
+app.use('/api', limiter);
 app.use('/api/telemetry/devices/search', searchLimiter);
 
 // Health check (público, sin auth, sin json parsing)
@@ -87,9 +95,6 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Better Auth handler — ANTES de express.json()
-app.all('/api/auth/*', toNodeHandler(auth));
-
 // JSON parsing — DESPUÉS del handler de better-auth
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
@@ -99,6 +104,10 @@ app.use(jsonErrorHandler); // Atrapa errores de JSON mal formado
 app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/telemetry', requireAuth, telemetryRouter);
 app.use('/api/config', requireAuth, configRouter);
+app.use('/api/status', requireAuth, statusRouter);
+app.use('/api/chirpstack', requireAuth, chirpstackRouter);
+app.use('/api/audit', requireAuth, auditRouter);
+app.use('/api/monitor', requireAuth, monitorRouter);
 
 // Error handling
 app.use(notFoundHandler);

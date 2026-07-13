@@ -209,3 +209,23 @@ CREATE INDEX IF NOT EXISTS idx_alerts_type_status_active
 -- Acelera la subquery LATERAL dentro de getCriticalAlerts() (tracking por alert_id)
 CREATE INDEX IF NOT EXISTS idx_tracking_alert_timestamp
   ON tracking_alerts(alert_id, timestamp DESC);
+
+-- ═════════════════════════════════════════
+-- ═════════════════════════════════════════
+-- 6. AUDITORÍA DEL SISTEMA
+-- ═════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    user_name VARCHAR(255),
+    action VARCHAR(100) NOT NULL,
+    details JSONB,
+    ip VARCHAR(45),
+    path VARCHAR(255),
+    method VARCHAR(10),
+    created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC')
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);

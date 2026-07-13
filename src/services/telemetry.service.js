@@ -61,7 +61,7 @@ export const searchDevicesService = async ({ q, type, companyId, companyIds, lim
   };
 };
 
-export const getDeviceTelemetryService = async (deviceId, { from, to, limit = PAGINATION.DEFAULT_LIMIT }) => {
+export const getDeviceTelemetryService = async (deviceId, { from, to, limit = PAGINATION.DEFAULT_LIMIT, offset }) => {
   let whereClause = 'WHERE device_id = $1';
   const params = [deviceId];
 
@@ -76,20 +76,38 @@ export const getDeviceTelemetryService = async (deviceId, { from, to, limit = PA
   }
 
   const limitInt = clampInt(limit, PAGINATION.DEFAULT_LIMIT, PAGINATION.MIN_LIMIT, PAGINATION.MAX_TELEMETRY_LIMIT);
+  const offsetInt = Math.max(0, parseInt(offset) || 0);
+  const limitIdx = params.length + 1;
   params.push(limitInt);
-
-  const [telemetryResult, statsResult] = await Promise.all([
-    pool.query(`
+  let telemetryQuery, statsQuery;
+  if (offsetInt > 0) {
+    const offsetIdx = params.length + 1;
+    params.push(offsetInt);
+    telemetryQuery = `
       SELECT id, device_id, ts, object, rxinfo
       FROM telemetry_data_all
       ${whereClause}
       ORDER BY ts DESC
-      LIMIT $${params.length}
-    `, params),
-    pool.query(`
-      SELECT COUNT(*) as total_records, MIN(ts) as first_record, MAX(ts) as last_record
-      FROM telemetry_data_all WHERE device_id = $1
-    `, [deviceId]),
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `;
+  } else {
+    telemetryQuery = `
+      SELECT id, device_id, ts, object, rxinfo
+      FROM telemetry_data_all
+      ${whereClause}
+      ORDER BY ts DESC
+      LIMIT $${limitIdx}
+    `;
+  }
+
+  statsQuery = `
+    SELECT COUNT(*) as total_records, MIN(ts) as first_record, MAX(ts) as last_record
+    FROM telemetry_data_all WHERE device_id = $1
+  `;
+
+  const [telemetryResult, statsResult] = await Promise.all([
+    pool.query(telemetryQuery, params),
+    pool.query(statsQuery, [deviceId]),
   ]);
 
   return {
