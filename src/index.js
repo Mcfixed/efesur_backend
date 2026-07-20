@@ -11,9 +11,7 @@ import { requireAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler, jsonErrorHandler } from './middleware/errorHandler.js';
 import pool from './config/database.js';
 import dashboardRouter from './routes/dashboard.routes.js';
-import telemetryRouter from './routes/telemetry.routes.js';
 import configRouter from './routes/config.routes.js';
-import statusRouter from './routes/status.routes.js';
 import chirpstackRouter from './routes/chirpstack.routes.js';
 import auditRouter from './routes/audit.routes.js';
 import monitorRouter from './routes/monitor.routes.js';
@@ -76,7 +74,7 @@ app.all('/api/auth/*', toNodeHandler(auth));
 
 // Limitador general para el resto de /api (telemetry, dashboard, config)
 app.use('/api', limiter);
-app.use('/api/telemetry/devices/search', searchLimiter);
+
 
 // Health check (público, sin auth, sin json parsing)
 app.get('/api/health', async (req, res) => {
@@ -102,9 +100,7 @@ app.use(jsonErrorHandler); // Atrapa errores de JSON mal formado
 
 // Rutas protegidas (todas requieren autenticación)
 app.use('/api/dashboard', requireAuth, dashboardRouter);
-app.use('/api/telemetry', requireAuth, telemetryRouter);
 app.use('/api/config', requireAuth, configRouter);
-app.use('/api/status', requireAuth, statusRouter);
 app.use('/api/chirpstack', requireAuth, chirpstackRouter);
 app.use('/api/audit', requireAuth, auditRouter);
 app.use('/api/monitor', requireAuth, monitorRouter);

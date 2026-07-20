@@ -2,7 +2,11 @@ import {
   getMonitorSummaryService, getMonitorActiveSensorsService, getMonitorAlertsPerDayService,
   getMonitorCalendarService, getMonitorAlertsByDateService, getMonitorDevicesService,
   getMonitorDeviceTelemetryService, getMonitorDeviceAlertsService, getMonitorGatewayPositionsService,
-  getMonitorAlertTrackingService, getMonitorLatestTelemetryService,
+  getMonitorAlertTrackingService, getMonitorLatestTelemetryService, getMonitorReportService,
+  getMonitorReportBatteryService, getMonitorReportConnectivityService,
+  getMonitorReportExecutiveService, getMonitorReportAlertsService,
+  getMonitorReportTemperatureService, getMonitorReportGpsService,
+  getMonitorReportGatewayService, getMonitorReportComparativeService,
 } from '../services/monitor.service.js';
 import { success } from '../utils/response.js';
 
@@ -57,5 +61,50 @@ export const getAlertTracking = async (req, res, next) => {
 
 export const getLatestTelemetry = async (req, res, next) => {
   try { const { limit } = req.query; const data = await getMonitorLatestTelemetryService(parseInt(limit) || 30, req.userCompanyIds); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getReport = async (req, res, next) => {
+  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportService(deviceIds, from, to); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getReportBattery = async (req, res, next) => {
+  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportBatteryService(deviceIds, from, to); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getReportConnectivity = async (req, res, next) => {
+  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportConnectivityService(deviceIds, from, to); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getReportExecutive = async (req, res, next) => {
+  try { const data = await getMonitorReportExecutiveService(req.userCompanyIds); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getReportAlerts = async (req, res, next) => {
+  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportAlertsService(deviceIds, from, to); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getReportTemperature = async (req, res, next) => {
+  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportTemperatureService(deviceIds, from, to); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getReportGps = async (req, res, next) => {
+  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportGpsService(deviceIds, from, to); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getReportGateway = async (req, res, next) => {
+  try { const data = await getMonitorReportGatewayService(req.userCompanyIds); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getReportComparative = async (req, res, next) => {
+  try { const { deviceIds, period1Start, period1End, period2Start, period2End } = req.body; const data = await getMonitorReportComparativeService(deviceIds, period1Start, period1End, period2Start, period2End); success(res, data); }
   catch (e) { next(e); }
 };

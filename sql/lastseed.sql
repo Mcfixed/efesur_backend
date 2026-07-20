@@ -90,9 +90,9 @@ INSERT INTO devices (dev_eui, name, company_id, type_device, is_active) VALUES
 ('LEC-001-AAAA-1111', 'Lector Norte-01', (SELECT id FROM companies WHERE rut = '76.123.456-7'), 'Lector', true),
 ('LEC-002-BBBB-2222', 'Lector Sur-01', (SELECT id FROM companies WHERE rut = '76.987.654-3'), 'Lector', true);
 
-INSERT INTO lector_device (id, last_date_reader, battery_reader) VALUES
-((SELECT id FROM devices WHERE dev_eui = 'LEC-001-AAAA-1111'), '2026-04-30 21:00:00', 80),
-((SELECT id FROM devices WHERE dev_eui = 'LEC-002-BBBB-2222'), '2026-04-30 22:30:00', 95);
+INSERT INTO lector_device (id, last_date_reader, battery_reader, tipo) VALUES
+((SELECT id FROM devices WHERE dev_eui = 'LEC-001-AAAA-1111'), '2026-04-30 21:00:00', 80, 'apertura_puerta'),
+((SELECT id FROM devices WHERE dev_eui = 'LEC-002-BBBB-2222'), '2026-04-30 22:30:00', 95, 'conexion_220v');
 
 -- 10. Telemetry data samples
 INSERT INTO telemetry_data_all (device_id, ts, object, rxinfo) VALUES

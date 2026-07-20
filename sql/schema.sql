@@ -126,7 +126,8 @@ CREATE TABLE IF NOT EXISTS gateway_device (
 CREATE TABLE IF NOT EXISTS lector_device (
     id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
     last_date_reader VARCHAR(100),
-    battery_reader INTEGER DEFAULT 100
+    battery_reader INTEGER DEFAULT 100,
+    tipo VARCHAR(50)
 );
 
 -- Raw Telemetry Data

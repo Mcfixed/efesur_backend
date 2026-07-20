@@ -124,10 +124,10 @@ export const getMonitorDevicesService = async (companyIds) => {
   const r = await pool.query(`
     SELECT d.id, d.dev_eui, d.name, d.type_device, d.is_active, d.last_seen,
       d.latitude_current, d.longitude_current,
-      (SELECT COALESCE(t.object->>'voltage_mV', t.object->'systemStatus'->>'operatingMode')::text
+      (SELECT t.object->>'voltage_mV'::text
        FROM telemetry_data_all t WHERE t.device_id = d.id AND t.object IS NOT NULL
        ORDER BY t.ts DESC LIMIT 1) as last_value
-    FROM devices d WHERE d.is_active = true${filter} ORDER BY d.name ASC
+    FROM devices d WHERE 1=1${filter} ORDER BY d.name ASC
   `, p);
   return r.rows;
 };
@@ -156,13 +156,42 @@ export const getMonitorDeviceTelemetryService = async (deviceId, { from, limit =
 // ─── Alertas de un dispositivo ──
 export const getMonitorDeviceAlertsService = async (deviceId) => {
   const r = await pool.query(`
-    SELECT a.id, a.type, a.status, a.metadata, a.created_at,
+    SELECT a.id, a.type, a.status, a.metadata, a.created_at, a.resolved_at,
            d.name as device_name
     FROM alerts a JOIN devices d ON a.device_id = d.id
-    WHERE a.device_id = $1 AND a.status = 'active'
+    WHERE a.device_id = $1
     ORDER BY a.created_at DESC
   `, [deviceId]);
   return r.rows;
+};
+
+// ─── Reporte detallado ──
+export const getMonitorReportService = async (deviceIds, from, to) => {
+  const params = [deviceIds];
+  let filter = ` AND t.device_id = ANY($1::int[])`;
+  let idx = 2;
+  if (from) { filter += ` AND t.ts >= $${idx}`; params.push(from); idx++; }
+  if (to) { filter += ` AND t.ts <= $${idx}`; params.push(to); idx++; }
+
+  const telemetry = await pool.query(`
+    SELECT t.id, t.ts, t.object, t.rxinfo, t.device_id,
+           d.name as device_name, d.type_device, d.dev_eui
+    FROM telemetry_data_all t
+    JOIN devices d ON t.device_id = d.id
+    WHERE 1=1${filter}
+    ORDER BY t.device_id, t.ts ASC
+  `, params);
+
+  // Alertas del período para esos dispositivos
+  const alerts = await pool.query(`
+    SELECT a.id, a.type, a.status, a.metadata, a.created_at, a.resolved_at,
+           d.name as device_name, d.type_device
+    FROM alerts a JOIN devices d ON a.device_id = d.id
+    WHERE a.device_id = ANY($1::int[])${from ? ` AND a.created_at >= $2` : ''}${to ? ` AND a.created_at <= $3` : ''}
+    ORDER BY a.created_at DESC
+  `, from && to ? [deviceIds, from, to] : from ? [deviceIds, from] : to ? [deviceIds, to] : [deviceIds]);
+
+  return { telemetry: telemetry.rows, alerts: alerts.rows, total: telemetry.rows.length };
 };
 
 // ─── Posiciones de gateways ──
@@ -173,4 +202,211 @@ export const getMonitorGatewayPositionsService = async () => {
       AND d.latitude_current IS NOT NULL AND d.longitude_current IS NOT NULL
   `);
   return r.rows;
+};
+
+// ─── Reporte Salud de Baterías ──
+export const getMonitorReportBatteryService = async (deviceIds, from, to) => {
+  const params = [deviceIds];
+  let filter = ` AND t.device_id = ANY($1::int[])`;
+  let idx = 2;
+  if (from) { filter += ` AND t.ts >= $${idx}`; params.push(from); idx++; }
+  if (to) { filter += ` AND t.ts <= $${idx}`; params.push(to); idx++; }
+
+  const telemetry = await pool.query(`
+    SELECT t.device_id, t.ts, t.object,
+           d.name as device_name, d.type_device, d.dev_eui
+    FROM telemetry_data_all t
+    JOIN devices d ON t.device_id = d.id
+    WHERE 1=1${filter} AND t.object->>'voltage_mV' IS NOT NULL
+    ORDER BY t.device_id, t.ts ASC
+  `, params);
+
+  const devices = await pool.query(`
+    SELECT d.id, d.name, d.type_device, d.dev_eui, d.last_seen,
+           gps.battery as gps_battery, gw.battery as gw_battery, lc.battery_reader as lector_battery
+    FROM devices d
+    LEFT JOIN gps_device gps ON d.id = gps.id
+    LEFT JOIN gateway_device gw ON d.id = gw.id
+    LEFT JOIN lector_device lc ON d.id = lc.id
+    WHERE d.id = ANY($1::int[])
+  `, [deviceIds]);
+
+  return { telemetry: telemetry.rows, devices: devices.rows, total: telemetry.rows.length };
+};
+
+// ─── Reporte Conectividad ──
+export const getMonitorReportConnectivityService = async (deviceIds, from, to) => {
+  const params = [deviceIds];
+  let filter = ` AND t.device_id = ANY($1::int[])`;
+  let idx = 2;
+  if (from) { filter += ` AND t.ts >= $${idx}`; params.push(from); idx++; }
+  if (to) { filter += ` AND t.ts <= $${idx}`; params.push(to); idx++; }
+
+  const telemetry = await pool.query(`
+    SELECT t.device_id, t.ts, t.rxinfo,
+           d.name as device_name, d.type_device, d.dev_eui
+    FROM telemetry_data_all t
+    JOIN devices d ON t.device_id = d.id
+    WHERE 1=1${filter} AND t.rxinfo IS NOT NULL
+    ORDER BY t.device_id, t.ts ASC
+  `, params);
+
+  const gateways = await pool.query(`
+    SELECT d.id, d.dev_eui, d.name, d.latitude_current, d.longitude_current,
+           gw.ip_internal, gw.firmware_version
+    FROM devices d
+    LEFT JOIN gateway_device gw ON d.id = gw.id
+    WHERE d.type_device = 'Gateway' AND d.is_active = true
+  `);
+
+  return { telemetry: telemetry.rows, gateways: gateways.rows, total: telemetry.rows.length };
+};
+
+// ─── Reporte Ejecutivo ──
+export const getMonitorReportExecutiveService = async (companyIds) => {
+  let filter = '';
+  const p = [];
+  if (companyIds?.length) { p.push(companyIds); filter = ` AND d.company_id = ANY($${p.length}::int[])`; }
+
+  const [totalDev, activeToday, alertCounts, topAlertDevices, gwStatus] = await Promise.all([
+    pool.query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE is_active = true) as activos FROM devices d WHERE 1=1${filter}`, p),
+    pool.query(`SELECT COUNT(DISTINCT t.device_id) as activos FROM telemetry_data_all t JOIN devices d ON t.device_id = d.id WHERE t.ts >= CURRENT_DATE${filter}`, p),
+    pool.query(`SELECT a.type, COUNT(*) as total FROM alerts a JOIN devices d ON a.device_id = d.id WHERE a.created_at >= CURRENT_DATE - INTERVAL '30 days'${filter.replace('d.', 'd.')} GROUP BY a.type`, p),
+    pool.query(`SELECT d.id, d.name, d.type_device, COUNT(a.id) as total FROM alerts a JOIN devices d ON a.device_id = d.id WHERE a.created_at >= CURRENT_DATE - INTERVAL '30 days'${filter.replace('d.', 'd.')} GROUP BY d.id, d.name, d.type_device ORDER BY total DESC LIMIT 5`, p),
+    pool.query(`SELECT d.id, d.name, d.last_seen, gw.firmware_version FROM devices d LEFT JOIN gateway_device gw ON d.id = gw.id WHERE d.type_device = 'Gateway'${filter}`, p),
+  ]);
+
+  return {
+    totalDevices: parseInt(totalDev.rows[0].total),
+    activeDevices: parseInt(totalDev.rows[0].activos),
+    activeToday: parseInt(activeToday.rows[0].activos),
+    alertsByType: alertCounts.rows,
+    topAlertDevices: topAlertDevices.rows,
+    gateways: gwStatus.rows,
+  };
+};
+
+// ─── Reporte Alertas Avanzado ──
+export const getMonitorReportAlertsService = async (deviceIds, from, to) => {
+  const params = [deviceIds];
+  let filter = ` AND a.device_id = ANY($1::int[])`;
+  let idx = 2;
+  if (from) { filter += ` AND a.created_at >= $${idx}`; params.push(from); idx++; }
+  if (to) { filter += ` AND a.created_at <= $${idx}`; params.push(to); idx++; }
+
+  const alerts = await pool.query(`
+    SELECT a.id, a.type, a.status, a.created_at, a.resolved_at, a.metadata,
+           d.name as device_name, d.type_device, d.dev_eui
+    FROM alerts a JOIN devices d ON a.device_id = d.id
+    WHERE 1=1${filter}
+    ORDER BY a.created_at DESC
+  `, params);
+
+  // Resolution time for resolved alerts
+  const resolved = await pool.query(`
+    SELECT a.type, AVG(EXTRACT(EPOCH FROM (a.resolved_at - a.created_at))/3600) as avg_hours
+    FROM alerts a JOIN devices d ON a.device_id = d.id
+    WHERE a.resolved_at IS NOT NULL${filter.replace('a.created_at', 'a.resolved_at')}
+    GROUP BY a.type
+  `, params);
+
+  return { alerts: alerts.rows, resolutionTimes: resolved.rows, total: alerts.rows.length };
+};
+
+// ─── Reporte Temperatura ──
+export const getMonitorReportTemperatureService = async (deviceIds, from, to) => {
+  const params = [deviceIds];
+  let filter = ` AND t.device_id = ANY($1::int[])`;
+  let idx = 2;
+  if (from) { filter += ` AND t.ts >= $${idx}`; params.push(from); idx++; }
+  if (to) { filter += ` AND t.ts <= $${idx}`; params.push(to); idx++; }
+
+  const telemetry = await pool.query(`
+    SELECT t.device_id, t.ts, t.object,
+           d.name as device_name, d.type_device, d.dev_eui
+    FROM telemetry_data_all t
+    JOIN devices d ON t.device_id = d.id
+    WHERE 1=1${filter} AND t.object->>'temperature_C' IS NOT NULL
+    ORDER BY t.device_id, t.ts ASC
+  `, params);
+
+  return { telemetry: telemetry.rows, total: telemetry.rows.length };
+};
+
+// ─── Reporte GPS Tracking ──
+export const getMonitorReportGpsService = async (deviceIds, from, to) => {
+  const params = [deviceIds];
+  let filter = ` AND t.device_id = ANY($1::int[])`;
+  let idx = 2;
+  if (from) { filter += ` AND t.ts >= $${idx}`; params.push(from); idx++; }
+  if (to) { filter += ` AND t.ts <= $${idx}`; params.push(to); idx++; }
+
+  const telemetry = await pool.query(`
+    SELECT t.device_id, t.ts, t.object,
+           d.name as device_name, d.type_device, d.dev_eui,
+           gps.battery, gps.operating_mode
+    FROM telemetry_data_all t
+    JOIN devices d ON t.device_id = d.id
+    LEFT JOIN gps_device gps ON d.id = gps.id
+    WHERE 1=1${filter} AND d.type_device = 'Gps'
+    ORDER BY t.device_id, t.ts ASC
+  `, params);
+
+  return { telemetry: telemetry.rows, total: telemetry.rows.length };
+};
+
+// ─── Reporte Gateway ──
+export const getMonitorReportGatewayService = async (companyIds) => {
+  let filter = '';
+  const p = [];
+  if (companyIds?.length) { p.push(companyIds); filter = ` AND d.company_id = ANY($${p.length}::int[])`; }
+
+  const gateways = await pool.query(`
+    SELECT d.id, d.dev_eui, d.name, d.last_seen, d.latitude_current, d.longitude_current,
+           gw.ip_internal, gw.battery, gw.firmware_version,
+           (SELECT COUNT(*) FROM devices child WHERE child.id_device_father = d.id) as device_count
+    FROM devices d
+    LEFT JOIN gateway_device gw ON d.id = gw.id
+    WHERE d.type_device = 'Gateway'${filter}
+  `, p);
+
+  return { gateways: gateways.rows };
+};
+
+// ─── Reporte Comparativo ──
+export const getMonitorReportComparativeService = async (deviceIds, period1Start, period1End, period2Start, period2End) => {
+  const buildQuery = (start, end) => {
+    const params = [deviceIds, start, end];
+    return pool.query(`
+      SELECT COUNT(*) as total_telemetry,
+             AVG((t.object->>'voltage_mV')::numeric) as avg_voltage,
+             AVG((t.object->>'temperature_C')::numeric) as avg_temperature
+      FROM telemetry_data_all t
+      WHERE t.device_id = ANY($1::int[]) AND t.ts >= $2 AND t.ts <= $3
+    `, params);
+  };
+
+  const [p1, p2] = await Promise.all([
+    buildQuery(period1Start, period1End),
+    buildQuery(period2Start, period2End),
+  ]);
+
+  // Alerts comparison
+  const alertsQuery = (start, end, params) => {
+    return pool.query(`
+      SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE type = 'critica') as criticas
+      FROM alerts a
+      WHERE a.device_id = ANY($1::int[]) AND a.created_at >= $2 AND a.created_at <= $3
+    `, params);
+  };
+
+  const [a1, a2] = await Promise.all([
+    alertsQuery(period1Start, period1End, [deviceIds, period1Start, period1End]),
+    alertsQuery(period2Start, period2End, [deviceIds, period2Start, period2End]),
+  ]);
+
+  return {
+    period1: { ...p1.rows[0], alerts: a1.rows[0] },
+    period2: { ...p2.rows[0], alerts: a2.rows[0] },
+  };
 };
