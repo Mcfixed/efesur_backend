@@ -3,12 +3,14 @@ import * as response from '../utils/response.js';
 
 export const getDashboardData = async (req, res, next) => {
   try {
-    const [gpsDevices, criticalAlerts, atencionAlerts, desconexionAlerts, movimientosAnomalos] = await Promise.all([
+    const [gpsDevices, criticalAlerts, atencionAlerts, desconexionAlerts, movimientosAnomalos, aperturaAlerts, presenciaAlerts] = await Promise.all([
       dashboardService.getAllGpsDevices(req.userCompanyIds),
       dashboardService.getCriticalAlerts(req.userCompanyIds),
       dashboardService.getAtencionAlerts(req.userCompanyIds),
       dashboardService.getDisconexionGWAlerts(req.userCompanyIds),
-      dashboardService.getMovimientosAnomalosAlerts(req.userCompanyIds)
+      dashboardService.getMovimientosAnomalosAlerts(req.userCompanyIds),
+      dashboardService.getAperturaAlerts(req.userCompanyIds),
+      dashboardService.getPresenciaAlerts(req.userCompanyIds),
     ]);
 
     response.success(res, {
@@ -25,6 +27,8 @@ export const getDashboardData = async (req, res, next) => {
         atencion: atencionAlerts.rows,
         desconexionGW: desconexionAlerts.rows,
         movimientos_anomalos: movimientosAnomalos.rows,
+        apertura: aperturaAlerts.rows,
+        presencia: presenciaAlerts.rows,
       },
     });
   } catch (error) {
@@ -80,7 +84,7 @@ export const getGatewayStatus = async (req, res, next) => {
 export const getAlertHistory = async (req, res, next) => {
   try {
     const { type, range } = req.query;
-    const validTypes = ['critica', 'atencion', 'gateways', 'movimientos_anomalos'];
+    const validTypes = ['critica', 'atencion', 'gateways', 'movimientos_anomalos', 'apertura', 'presencia'];
     const validRanges = ['1h', '24h', '7d', '30d', 'total'];
 
     if (!validTypes.includes(type)) {

@@ -18,9 +18,11 @@ export const getMonitorSummaryService = async (companyIds) => {
 
   const alertas = await pool.query(`
     SELECT
-      COUNT(*) FILTER (WHERE a.type = 'critica' AND a.status = 'active' AND DATE(a.created_at) = CURRENT_DATE) as criticas,
-      COUNT(*) FILTER (WHERE a.type = 'atencion' AND a.status = 'active' AND DATE(a.created_at) = CURRENT_DATE) as atencion,
-      COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos' AND a.status = 'active' AND DATE(a.created_at) = CURRENT_DATE) as movimientos,
+      COUNT(*) FILTER (WHERE a.type = 'critica' AND (a.status_system = 'active' OR a.status_system IS NULL) AND DATE(a.created_at) = CURRENT_DATE) as criticas,
+      COUNT(*) FILTER (WHERE a.type = 'atencion' AND DATE(a.created_at) = CURRENT_DATE) as atencion,
+      COUNT(*) FILTER (WHERE a.type = 'apertura' AND DATE(a.created_at) = CURRENT_DATE) as apertura,
+      COUNT(*) FILTER (WHERE a.type = 'presencia' AND DATE(a.created_at) = CURRENT_DATE) as presencia,
+      COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos' AND DATE(a.created_at) = CURRENT_DATE) as movimientos,
       COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS') AND a.status = 'active') as desconexion
     FROM alerts a JOIN devices d ON a.device_id = d.id WHERE 1=1${filter}
   `, p);
@@ -31,6 +33,7 @@ export const getMonitorSummaryService = async (companyIds) => {
     cobertura: totalSensores > 0 ? Math.round((activosHoy / totalSensores) * 100) : 0,
     activosHoy,
     criticas: parseInt(r.criticas), atencion: parseInt(r.atencion),
+    apertura: parseInt(r.apertura), presencia: parseInt(r.presencia),
     movimientos: parseInt(r.movimientos), desconexion: parseInt(r.desconexion),
   };
 };
@@ -56,6 +59,8 @@ export const getMonitorAlertsPerDayService = async (companyIds) => {
     SELECT DATE(a.created_at) as dia,
       COUNT(*) FILTER (WHERE a.type = 'critica') as criticas,
       COUNT(*) FILTER (WHERE a.type = 'atencion') as atencion,
+      COUNT(*) FILTER (WHERE a.type = 'apertura') as apertura,
+      COUNT(*) FILTER (WHERE a.type = 'presencia') as presencia,
       COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos') as movimientos
     FROM alerts a JOIN devices d ON a.device_id = d.id
     WHERE a.created_at >= CURRENT_DATE - INTERVAL '30 days'${filter}
@@ -72,6 +77,8 @@ export const getMonitorCalendarService = async (companyIds, year, month) => {
     SELECT EXTRACT(DAY FROM a.created_at) as dia, COUNT(*) as total,
       COUNT(*) FILTER (WHERE a.type = 'critica') as criticas,
       COUNT(*) FILTER (WHERE a.type = 'atencion') as atencion,
+      COUNT(*) FILTER (WHERE a.type = 'apertura') as apertura,
+      COUNT(*) FILTER (WHERE a.type = 'presencia') as presencia,
       COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos') as movimientos,
       COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS')) as desconexion
     FROM alerts a JOIN devices d ON a.device_id = d.id
@@ -123,7 +130,7 @@ export const getMonitorDevicesService = async (companyIds) => {
   if (companyIds?.length) { p.push(companyIds); filter = ` AND company_id = ANY($${p.length}::int[])`; }
   const r = await pool.query(`
     SELECT d.id, d.dev_eui, d.name, d.type_device, d.is_active, d.last_seen,
-      d.latitude_current, d.longitude_current,
+      d.latitude_current, d.longitude_current, d.id_device_father,
       (SELECT t.object->>'voltage_mV'::text
        FROM telemetry_data_all t WHERE t.device_id = d.id AND t.object IS NOT NULL
        ORDER BY t.ts DESC LIMIT 1) as last_value
@@ -154,14 +161,17 @@ export const getMonitorDeviceTelemetryService = async (deviceId, { from, limit =
 };
 
 // ─── Alertas de un dispositivo ──
-export const getMonitorDeviceAlertsService = async (deviceId) => {
+export const getMonitorDeviceAlertsService = async (deviceId, companyIds) => {
+  const params = [deviceId];
+  let companyFilter = '';
+  if (companyIds?.length) { params.push(companyIds); companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`; }
   const r = await pool.query(`
     SELECT a.id, a.type, a.status, a.metadata, a.created_at, a.resolved_at,
            d.name as device_name
     FROM alerts a JOIN devices d ON a.device_id = d.id
-    WHERE a.device_id = $1
+    WHERE a.device_id = $1${companyFilter}
     ORDER BY a.created_at DESC
-  `, [deviceId]);
+  `, params);
   return r.rows;
 };
 

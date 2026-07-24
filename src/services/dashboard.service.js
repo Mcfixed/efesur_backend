@@ -131,6 +131,48 @@ export const getMovimientosAnomalosAlerts = (companyIds) => {
   `, params);
 };
 
+export const getAperturaAlerts = (companyIds) => {
+  const params = ['apertura'];
+  let companyFilter = '';
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+  return pool.query(`
+    SELECT 
+      a.id, a.device_id, a.type, a.status, a.metadata, a.created_at,
+      d.name as device_name, d.latitude_current, d.longitude_current,
+      (SELECT d2.id FROM devices d2 WHERE d2.id_device_father = d.id AND d2.type_device = 'Gateway' LIMIT 1) as gateway_id
+    FROM alerts a
+    JOIN devices d ON a.device_id = d.id
+    WHERE a.type = $1
+      AND (a.created_at AT TIME ZONE 'UTC') >= NOW() - INTERVAL '30 minutes'${companyFilter}
+    ORDER BY a.created_at DESC
+    LIMIT 500
+  `, params);
+};
+
+export const getPresenciaAlerts = (companyIds) => {
+  const params = ['presencia'];
+  let companyFilter = '';
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+  return pool.query(`
+    SELECT 
+      a.id, a.device_id, a.type, a.status, a.metadata, a.created_at,
+      d.name as device_name, d.latitude_current, d.longitude_current,
+      (SELECT d2.id FROM devices d2 WHERE d2.id_device_father = d.id AND d2.type_device = 'Gateway' LIMIT 1) as gateway_id
+    FROM alerts a
+    JOIN devices d ON a.device_id = d.id
+    WHERE a.type = $1
+      AND (a.created_at AT TIME ZONE 'UTC') >= NOW() - INTERVAL '30 minutes'${companyFilter}
+    ORDER BY a.created_at DESC
+    LIMIT 500
+  `, params);
+};
+
 export const resolveAlertById = (id, userId, reason) => pool.query(`
   UPDATE alerts 
   SET status_system = $1, user_id = $2, user_reason = $3, resolved_at = NOW()
@@ -159,6 +201,8 @@ export const getDevicesLocations = (companyIds) => {
       FROM alerts 
       WHERE (type = 'atencion' AND status = $2)
          OR (type = 'critica' AND status_system = 'active')
+         OR (type = 'apertura' AND status = 'active')
+         OR (type = 'presencia' AND status = 'active')
          OR (type = 'movimientos_anomalos' AND status = 'active')
       ORDER BY device_id, created_at DESC
     ) a ON d.id = a.device_id
@@ -268,15 +312,13 @@ export const getAlertTimeline = async (range, companyIds) => {
       a.id, a.device_id, a.type, a.status, a.status_system, a.metadata, a.created_at, a.resolved_at, a.user_reason,
       d.name as device_name, d.dev_eui,
       CASE 
-        WHEN a.type = 'critica' AND a.status_system = 'active' THEN 0
-        WHEN a.type = 'movimientos_anomalos' AND a.status = 'active' THEN 1
-        WHEN a.type = 'atencion' AND a.status = 'active' THEN 2
-        ELSE 3
+        WHEN a.type = 'critica' AND (a.status_system = 'active' OR a.status_system IS NULL) THEN 0
+        ELSE 1
       END as priority,
       a.status as alert_status
     FROM alerts a
     JOIN devices d ON a.device_id = d.id
-    WHERE (a.type = 'critica' OR a.type = 'atencion' OR a.type = 'movimientos_anomalos')
+    WHERE (a.type IN ('critica','apertura','presencia','atencion','movimientos_anomalos','desconexionGW','desconexionGPS'))
       ${timeFilter}${companyFilter}
     ORDER BY priority ASC, a.created_at DESC
     LIMIT 500

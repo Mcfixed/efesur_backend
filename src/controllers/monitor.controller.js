@@ -46,7 +46,7 @@ export const getDeviceTelemetry = async (req, res, next) => {
 };
 
 export const getDeviceAlerts = async (req, res, next) => {
-  try { const { id } = req.params; const data = await getMonitorDeviceAlertsService(parseInt(id)); success(res, data); }
+  try { const { id } = req.params; const data = await getMonitorDeviceAlertsService(parseInt(id), req.userCompanyIds); success(res, data); }
   catch (e) { next(e); }
 };
 
