@@ -9,10 +9,10 @@ INSERT INTO companies (name, rut, sector, color_theme, is_active) VALUES
 ('AST2', '76.987.654-3', 'Minería', '#28a745', true),
 ('AST3', '76.555.444-1', 'Energía Renovable', '#ffc107', true);
 
--- Users
-INSERT INTO users (email, email_verified, name, is_superuser) VALUES
-('admin@wisensor.cl', true, 'Administrador Sistema', true),
-('diego@wisensor.cl', true, 'Diego García', false);
+-- Users (role: superadmin | admin_efe | visualizador)
+INSERT INTO users (email, email_verified, name, role) VALUES
+('admin@wisensor.cl', true, 'Administrador Sistema', 'superadmin'),
+('diego@wisensor.cl', true, 'Diego García', 'admin_efe');
 
 -- Company-User assignments (usando subqueries para obtener los UUIDs reales)
 INSERT INTO companies_users (company_id, user_id, role) VALUES
