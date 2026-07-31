@@ -39,18 +39,50 @@ export const getDashboardData = async (req, res, next) => {
 export const resolveAlert = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { reason } = req.body;
-    const userId = req.user.id; // Usuario autenticado desde la sesión
+    const { reason, action } = req.body;
+    const userId = req.user.id;
 
-    const result = await dashboardService.resolveAlertById(id, userId, reason);
+    // Obtener dev_eui del dispositivo asociado a la alerta
+    const pool = (await import('../config/database.js')).default;
+    const deviceResult = await pool.query(
+      'SELECT d.dev_eui FROM alerts a JOIN devices d ON a.device_id = d.id WHERE a.id = $1',
+      [id]
+    );
+    const devEui = deviceResult?.rows?.[0]?.dev_eui;
 
-    if (result.rowCount === 0) {
-      return response.notFound(res, 'Alert not found or not critical');
+    let commandSent = null;
+    let result = null;
+
+    if (action === 'abortar' || action === 'persecucion') {
+      // Solo enviar comando, NO resolver la alerta
+      if (devEui) {
+        const commandKey = action === 'abortar' ? 'ABORTAR' : 'PERSEGUICION';
+        const chirpstackService = await import('../services/chirpstack.service.js');
+        await chirpstackService.sendCommandService([devEui], commandKey);
+        commandSent = commandKey;
+      }
+      result = { rows: [{ id, action, commandSent, resolved: false }] };
+    } else {
+      // Resolver la alerta en BD
+      result = await dashboardService.resolveAlertById(id, userId, reason);
+      if (result.rowCount === 0) {
+        return response.notFound(res, 'Alert not found or not critical');
+      }
     }
 
+    // Auditoría
+    const auditLog = (await import('../services/audit.service.js')).log;
+    auditLog({
+      userId: req.user?.id,
+      userName: req.user?.name,
+      action: action === 'resolver' ? 'alert_resolve' : `alert_${action}`,
+      details: { alertId: id, reason, action: action || 'resolver', commandSent, devEui },
+      ip: req.ip,
+    });
+
     response.success(res, {
-      message: 'Alert resolved successfully',
-      alert: result.rows[0]
+      message: action === 'resolver' ? 'Alerta resuelta' : `Comando ${commandSent} enviado al sensor`,
+      alert: { ...result.rows[0], action: action || 'resolver', commandSent },
     });
   } catch (error) {
     next(error);

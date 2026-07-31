@@ -194,7 +194,7 @@ export const getMonitorReportService = async (deviceIds, from, to) => {
 
   // Alertas del período para esos dispositivos
   const alerts = await pool.query(`
-    SELECT a.id, a.type, a.status, a.metadata, a.created_at, a.resolved_at,
+    SELECT a.id, a.type, a.status, a.metadata, a.created_at, a.resolved_at, a.device_id,
            d.name as device_name, d.type_device
     FROM alerts a JOIN devices d ON a.device_id = d.id
     WHERE a.device_id = ANY($1::int[])${from ? ` AND a.created_at >= $2` : ''}${to ? ` AND a.created_at <= $3` : ''}
@@ -306,7 +306,17 @@ export const getMonitorReportAlertsService = async (deviceIds, from, to) => {
 
   const alerts = await pool.query(`
     SELECT a.id, a.type, a.status, a.created_at, a.resolved_at, a.metadata,
-           d.name as device_name, d.type_device, d.dev_eui
+           d.name as device_name, d.type_device, d.dev_eui,
+           COALESCE((
+             SELECT json_agg(json_build_object(
+               'timestamp', ta.timestamp,
+               'battery', ta.battery,
+               'latitude', ta.latitude,
+               'longitude', ta.longitude,
+               'metadata', ta.metadata
+             ) ORDER BY ta.timestamp ASC)
+             FROM tracking_alerts ta WHERE ta.alert_id = a.id
+           ), '[]'::json) as tracking_data
     FROM alerts a JOIN devices d ON a.device_id = d.id
     WHERE 1=1${filter}
     ORDER BY a.created_at DESC

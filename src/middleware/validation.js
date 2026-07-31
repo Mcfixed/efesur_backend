@@ -71,7 +71,8 @@ export const deviceValidation = {
 export const alertValidation = {
   resolve: [
     param('id').isInt().withMessage('Invalid alert ID'),
-    body('reason').trim().notEmpty().withMessage('Resolution reason required'),
+    body('reason').optional({ values: 'null' }).trim(),
+    body('action').optional().isIn(['abortar', 'persecucion', 'resolver']).withMessage('Invalid action'),
   ],
 };
 
