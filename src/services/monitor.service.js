@@ -61,7 +61,8 @@ export const getMonitorAlertsPerDayService = async (companyIds) => {
       COUNT(*) FILTER (WHERE a.type = 'atencion') as atencion,
       COUNT(*) FILTER (WHERE a.type = 'apertura') as apertura,
       COUNT(*) FILTER (WHERE a.type = 'presencia') as presencia,
-      COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos') as movimientos
+      COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos') as movimientos,
+      COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS')) as desconexion
     FROM alerts a JOIN devices d ON a.device_id = d.id
     WHERE a.created_at >= CURRENT_DATE - INTERVAL '30 days'${filter}
     GROUP BY DATE(a.created_at) ORDER BY dia ASC
