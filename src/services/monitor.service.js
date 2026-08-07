@@ -132,10 +132,26 @@ export const getMonitorDevicesService = async (companyIds) => {
   const r = await pool.query(`
     SELECT d.id, d.dev_eui, d.name, d.type_device, d.is_active, d.last_seen,
       d.latitude_current, d.longitude_current, d.id_device_father,
+      COALESCE(
+        (SELECT COALESCE(
+           t.object->>'operatingMode',
+           t.object->'systemStatus'->>'operatingMode'
+         )
+         FROM telemetry_data_all t
+         WHERE t.device_id = d.id
+           AND t.object IS NOT NULL
+           AND (t.object->>'operatingMode' IS NOT NULL
+             OR t.object->'systemStatus'->>'operatingMode' IS NOT NULL)
+         ORDER BY t.ts DESC LIMIT 1),
+        gps.operating_mode,
+        'sin datos'
+      ) as operating_mode,
       (SELECT t.object->>'voltage_mV'::text
        FROM telemetry_data_all t WHERE t.device_id = d.id AND t.object IS NOT NULL
        ORDER BY t.ts DESC LIMIT 1) as last_value
-    FROM devices d WHERE 1=1${filter} ORDER BY d.name ASC
+    FROM devices d
+    LEFT JOIN gps_device gps ON d.id = gps.id
+    WHERE 1=1${filter} ORDER BY d.name ASC
   `, p);
   return r.rows;
 };
