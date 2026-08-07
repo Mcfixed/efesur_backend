@@ -7,6 +7,7 @@ import {
   getMonitorReportExecutiveService, getMonitorReportAlertsService,
   getMonitorReportTemperatureService, getMonitorReportGpsService,
   getMonitorReportGatewayService, getMonitorReportComparativeService,
+  getMonitorReportGatewayStatsService,
 } from '../services/monitor.service.js';
 import { success } from '../utils/response.js';
 
@@ -66,6 +67,11 @@ export const getLatestTelemetry = async (req, res, next) => {
 
 export const getReport = async (req, res, next) => {
   try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportService(deviceIds, from, to); success(res, data); }
+  catch (e) { next(e); }
+};
+
+export const getReportGatewayStats = async (req, res, next) => {
+  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportGatewayStatsService(deviceIds, from, to); success(res, data); }
   catch (e) { next(e); }
 };
 

@@ -334,6 +334,55 @@ export const getMonitorReportAlertsService = async (deviceIds, from, to) => {
   return { alerts: alerts.rows, resolutionTimes: resolved.rows, total: alerts.rows.length };
 };
 
+// ─── Stats reales de gateways: sensores únicos, registros, redundancia ──
+// Cuenta, para cada gateway seleccionado, los sensores que realmente le reportaron
+// en el período, buscando su gatewayId dentro del rxinfo de telemetry_data_all.
+export const getMonitorReportGatewayStatsService = async (deviceIds, from, to) => {
+  const gateways = await pool.query(`
+    SELECT d.id, d.dev_eui, d.name
+    FROM devices d
+    WHERE d.type_device = 'Gateway' AND d.id = ANY($1::int[])
+  `, [deviceIds]);
+
+  if (!gateways.rows.length) return { gateways: [] };
+
+  const gwStats = [];
+  for (const gw of gateways.rows) {
+    const params = [];
+    const conds = [];
+    const eui = gw.dev_eui;
+    const short = eui && eui.length >= 6 ? eui.slice(-6) : null;
+    // Coincidencia por gatewayId completo o por últimos 6 chars (insensible a mayúsculas)
+    if (eui) { params.push(eui.toLowerCase()); conds.push(`EXISTS (SELECT 1 FROM jsonb_array_elements(t.rxinfo) r WHERE lower(r->>'gatewayId') = $${params.length})`); }
+    if (short) { params.push(short.toLowerCase()); conds.push(`EXISTS (SELECT 1 FROM jsonb_array_elements(t.rxinfo) r WHERE lower(r->>'gatewayId') LIKE '%' || $${params.length} || '%')`); }
+    let filter = '';
+    if (conds.length) filter += ` AND (${conds.join(' OR ')})`;
+    let timeFilter = '';
+    if (from) { params.push(from); timeFilter += ` AND t.ts >= $${params.length}`; }
+    if (to) { params.push(to); timeFilter += ` AND t.ts <= $${params.length}`; }
+
+    const stats = await pool.query(`
+      SELECT COUNT(DISTINCT t.device_id) as sensores,
+             COUNT(*) as registros,
+             COALESCE(AVG((SELECT COUNT(*) FROM jsonb_array_elements(t.rxinfo))), 0) as redundancia
+      FROM telemetry_data_all t
+      WHERE t.rxinfo IS NOT NULL AND t.rxinfo != '[]'::jsonb
+        ${filter}${timeFilter}
+    `, params);
+
+    gwStats.push({
+      id: gw.id,
+      dev_eui: gw.dev_eui,
+      name: gw.name,
+      sensores: parseInt(stats.rows[0].sensores),
+      registros: parseInt(stats.rows[0].registros),
+      redundancia: parseFloat(stats.rows[0].redundancia || 0),
+    });
+  }
+
+  return { gateways: gwStats };
+};
+
 // ─── Reporte Temperatura ──
 export const getMonitorReportTemperatureService = async (deviceIds, from, to) => {
   const params = [deviceIds];
