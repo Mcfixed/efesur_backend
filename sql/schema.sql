@@ -149,7 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_ts ON telemetry_data_all(ts DESC);
 CREATE TABLE IF NOT EXISTS alerts (
     id SERIAL PRIMARY KEY,
     device_id INTEGER REFERENCES devices(id) ON DELETE CASCADE,
-    type VARCHAR(20) NOT NULL CHECK (type IN ('atencion', 'critica', 'desconexionGW', 'desconexionGPS', 'movimientos_anomalos', 'apertura', 'presencia')),
+    type VARCHAR(20) NOT NULL CHECK (type IN ('atencion', 'critica', 'desconexionGW', 'desconexionGPS', 'desconexion220', 'desconexionbatGW', 'movimientos_anomalos', 'apertura', 'presencia')),
     status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'resolved')),
     status_system VARCHAR(20) DEFAULT 'active' CHECK (status_system IN ('active', 'resolved')),
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,

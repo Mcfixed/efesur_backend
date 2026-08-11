@@ -23,7 +23,7 @@ export const getMonitorSummaryService = async (companyIds) => {
       COUNT(*) FILTER (WHERE a.type = 'apertura' AND DATE(a.created_at) = CURRENT_DATE) as apertura,
       COUNT(*) FILTER (WHERE a.type = 'presencia' AND DATE(a.created_at) = CURRENT_DATE) as presencia,
       COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos' AND DATE(a.created_at) = CURRENT_DATE) as movimientos,
-      COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS') AND a.status = 'active') as desconexion
+      COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS','desconexion220','desconexionbatGW') AND a.status = 'active') as desconexion
     FROM alerts a JOIN devices d ON a.device_id = d.id WHERE 1=1${filter}
   `, p);
   const r = alertas.rows[0];
@@ -62,7 +62,7 @@ export const getMonitorAlertsPerDayService = async (companyIds) => {
       COUNT(*) FILTER (WHERE a.type = 'apertura') as apertura,
       COUNT(*) FILTER (WHERE a.type = 'presencia') as presencia,
       COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos') as movimientos,
-      COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS')) as desconexion
+      COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS','desconexion220','desconexionbatGW')) as desconexion
     FROM alerts a JOIN devices d ON a.device_id = d.id
     WHERE a.created_at >= CURRENT_DATE - INTERVAL '30 days'${filter}
     GROUP BY DATE(a.created_at) ORDER BY dia ASC
@@ -81,7 +81,7 @@ export const getMonitorCalendarService = async (companyIds, year, month) => {
       COUNT(*) FILTER (WHERE a.type = 'apertura') as apertura,
       COUNT(*) FILTER (WHERE a.type = 'presencia') as presencia,
       COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos') as movimientos,
-      COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS')) as desconexion
+      COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS','desconexion220','desconexionbatGW')) as desconexion
     FROM alerts a JOIN devices d ON a.device_id = d.id
     WHERE a.created_at >= $1::date AND a.created_at < $1::date + INTERVAL '1 month'${filter}
     GROUP BY EXTRACT(DAY FROM a.created_at) ORDER BY dia ASC
@@ -102,11 +102,21 @@ export const getMonitorAlertsByDateService = async (companyIds, date) => {
 };
 
 // ─── Trackeo de alerta ──
-export const getMonitorAlertTrackingService = async (alertId) => {
+export const getMonitorAlertTrackingService = async (alertId, companyIds) => {
+  const params = [alertId];
+  let companyFilter = '';
+  if (companyIds?.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
   const r = await pool.query(`
-    SELECT timestamp, battery, latitude, longitude, metadata
-    FROM tracking_alerts WHERE alert_id = $1 ORDER BY timestamp ASC
-  `, [alertId]);
+    SELECT ta.timestamp, ta.battery, ta.latitude, ta.longitude, ta.metadata
+    FROM tracking_alerts ta
+    JOIN alerts a ON ta.alert_id = a.id
+    JOIN devices d ON a.device_id = d.id
+    WHERE ta.alert_id = $1${companyFilter}
+    ORDER BY ta.timestamp ASC
+  `, params);
   return r.rows;
 };
 
@@ -222,12 +232,18 @@ export const getMonitorReportService = async (deviceIds, from, to) => {
 };
 
 // ─── Posiciones de gateways ──
-export const getMonitorGatewayPositionsService = async () => {
+export const getMonitorGatewayPositionsService = async (companyIds) => {
+  const params = [];
+  let companyFilter = '';
+  if (companyIds?.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
   const r = await pool.query(`
     SELECT d.id, d.dev_eui, d.name, d.latitude_current, d.longitude_current
     FROM devices d WHERE d.type_device = 'Gateway' AND d.is_active = true
-      AND d.latitude_current IS NOT NULL AND d.longitude_current IS NOT NULL
-  `);
+      AND d.latitude_current IS NOT NULL AND d.longitude_current IS NOT NULL${companyFilter}
+  `, params);
   return r.rows;
 };
 
@@ -262,7 +278,7 @@ export const getMonitorReportBatteryService = async (deviceIds, from, to) => {
 };
 
 // ─── Reporte Conectividad ──
-export const getMonitorReportConnectivityService = async (deviceIds, from, to) => {
+export const getMonitorReportConnectivityService = async (deviceIds, from, to, companyIds) => {
   const params = [deviceIds];
   let filter = ` AND t.device_id = ANY($1::int[])`;
   let idx = 2;
@@ -278,13 +294,19 @@ export const getMonitorReportConnectivityService = async (deviceIds, from, to) =
     ORDER BY t.device_id, t.ts ASC
   `, params);
 
+  const gwParams = [];
+  let gwFilter = '';
+  if (companyIds?.length) {
+    gwParams.push(companyIds);
+    gwFilter = ` AND d.company_id = ANY($${gwParams.length}::int[])`;
+  }
   const gateways = await pool.query(`
     SELECT d.id, d.dev_eui, d.name, d.latitude_current, d.longitude_current,
            gw.ip_internal, gw.firmware_version
     FROM devices d
     LEFT JOIN gateway_device gw ON d.id = gw.id
-    WHERE d.type_device = 'Gateway' AND d.is_active = true
-  `);
+    WHERE d.type_device = 'Gateway' AND d.is_active = true${gwFilter}
+  `, gwParams);
 
   return { telemetry: telemetry.rows, gateways: gateways.rows, total: telemetry.rows.length };
 };

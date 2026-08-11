@@ -18,7 +18,15 @@ export const getAllCompaniesService = (companyIds) => {
   `, params);
 };
 
-export const getCompanyByIdService = (id) => pool.query('SELECT * FROM companies WHERE id = $1', [id]);
+export const getCompanyByIdService = (id, companyIds) => {
+  const params = [id];
+  let filter = '';
+  if (companyIds?.length) {
+    params.push(companyIds);
+    filter = ` AND id = ANY($${params.length}::int[])`;
+  }
+  return pool.query(`SELECT * FROM companies WHERE id = $1${filter}`, params);
+};
 
 export const createCompanyService = ({ name, rut, sector, color_theme }) => pool.query(`
   INSERT INTO companies (name, rut, sector, color_theme) VALUES ($1, $2, $3, $4) RETURNING *
@@ -205,11 +213,19 @@ export const getAllDevicesService = ({ companyId, type, isActive, companyIds }) 
   `, params);
 };
 
-export const getDeviceByIdService = (id) => pool.query(`
-  SELECT d.*, c.name as company_name, ${DEVICE_SPECIFIC_DATA}
-  ${DEVICE_JOINS}
-  WHERE d.id = $1
-`, [id]);
+export const getDeviceByIdService = (id, companyIds) => {
+  const params = [id];
+  let filter = '';
+  if (companyIds?.length) {
+    params.push(companyIds);
+    filter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+  return pool.query(`
+    SELECT d.*, c.name as company_name, ${DEVICE_SPECIFIC_DATA}
+    ${DEVICE_JOINS}
+    WHERE d.id = $1${filter}
+  `, params);
+};
 
 export const createDeviceService = async ({ dev_eui, name, company_id, id_device_father, type_device, latitude_current, longitude_current, specific_data }) => {
   const client = await pool.connect();

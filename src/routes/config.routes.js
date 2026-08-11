@@ -1,5 +1,6 @@
 import express from 'express';
 import { companyValidation, userValidation, deviceValidation, validate } from '../middleware/validation.js';
+import { requireRole } from '../utils/accessControl.js';
 import {
   getCompanies, getCompany, createCompany, updateCompany, deleteCompany,
   getUsers, getUser, createUser, updateUser, deleteUser,
@@ -10,32 +11,36 @@ import {
 
 const router = express.Router();
 
+// Las operaciones de escritura (crear/editar/borrar) requieren rol administrativo.
+// Las lecturas quedan abiertas a cualquier usuario autenticado, pero SIEMPRE
+// filtradas por empresa (req.userCompanyIds) dentro de los services/controllers.
+
 // Companies
 router.get('/companies', getCompanies);
 router.get('/companies/:id', getCompany);
-router.post('/companies', companyValidation.create, validate, createCompany);
-router.put('/companies/:id', companyValidation.update, validate, updateCompany);
-router.delete('/companies/:id', deleteCompany);
+router.post('/companies', requireRole('superadmin', 'admin_efe'), companyValidation.create, validate, createCompany);
+router.put('/companies/:id', requireRole('superadmin', 'admin_efe'), companyValidation.update, validate, updateCompany);
+router.delete('/companies/:id', requireRole('superadmin', 'admin_efe'), deleteCompany);
 
 // Users
 router.get('/users', getUsers);
 router.get('/users/:id', getUser);
-router.post('/users', userValidation.create, validate, createUser);
-router.put('/users/:id', userValidation.update, validate, updateUser);
-router.delete('/users/:id', deleteUser);
-router.post('/users/assign-company', userValidation.assignCompany, validate, assignUserToCompany);
-router.delete('/users/:userId/companies/:companyId', removeUserFromCompany);
+router.post('/users', requireRole('superadmin', 'admin_efe'), userValidation.create, validate, createUser);
+router.put('/users/:id', requireRole('superadmin', 'admin_efe'), userValidation.update, validate, updateUser);
+router.delete('/users/:id', requireRole('superadmin', 'admin_efe'), deleteUser);
+router.post('/users/assign-company', requireRole('superadmin', 'admin_efe'), userValidation.assignCompany, validate, assignUserToCompany);
+router.delete('/users/:userId/companies/:companyId', requireRole('superadmin', 'admin_efe'), removeUserFromCompany);
 router.get('/roles', getRoles);
 
 // Company Config
 router.get('/companies/:companyId/config', getCompanyConfig);
-router.put('/companies/:companyId/config', updateCompanyConfig);
+router.put('/companies/:companyId/config', requireRole('superadmin', 'admin_efe'), updateCompanyConfig);
 
 // Devices
 router.get('/devices', getDevices);
 router.get('/devices/:id', getDevice);
-router.post('/devices', deviceValidation.create, validate, createDevice);
-router.put('/devices/:id', deviceValidation.update, validate, updateDevice);
-router.delete('/devices/:id', deleteDevice);
+router.post('/devices', requireRole('superadmin', 'admin_efe'), deviceValidation.create, validate, createDevice);
+router.put('/devices/:id', requireRole('superadmin', 'admin_efe'), deviceValidation.update, validate, updateDevice);
+router.delete('/devices/:id', requireRole('superadmin', 'admin_efe'), deleteDevice);
 
 export default router;

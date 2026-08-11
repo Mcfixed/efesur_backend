@@ -10,6 +10,7 @@ import {
   getMonitorReportGatewayStatsService,
 } from '../services/monitor.service.js';
 import { success } from '../utils/response.js';
+import { assertDeviceAccess, assertDevicesAccess, assertAlertAccess } from '../utils/accessControl.js';
 
 export const getSummary = async (req, res, next) => {
   try { const data = await getMonitorSummaryService(req.userCompanyIds); success(res, data); }
@@ -42,21 +43,40 @@ export const getDevices = async (req, res, next) => {
 };
 
 export const getDeviceTelemetry = async (req, res, next) => {
-  try { const { id } = req.params; const { from, limit, offset } = req.query; const data = await getMonitorDeviceTelemetryService(parseInt(id), { from, limit: parseInt(limit) || 200, offset: parseInt(offset) || 0 }); success(res, data); }
+  try {
+    const { id } = req.params;
+    const deviceId = parseInt(id);
+    await assertDeviceAccess(req.userCompanyIds, deviceId);
+    const { from, limit, offset } = req.query;
+    const data = await getMonitorDeviceTelemetryService(deviceId, { from, limit: parseInt(limit) || 200, offset: parseInt(offset) || 0 });
+    success(res, data);
+  }
   catch (e) { next(e); }
 };
 
 export const getDeviceAlerts = async (req, res, next) => {
-  try { const { id } = req.params; const data = await getMonitorDeviceAlertsService(parseInt(id), req.userCompanyIds); success(res, data); }
+  try {
+    const { id } = req.params;
+    const deviceId = parseInt(id);
+    await assertDeviceAccess(req.userCompanyIds, deviceId);
+    const data = await getMonitorDeviceAlertsService(deviceId, req.userCompanyIds);
+    success(res, data);
+  }
   catch (e) { next(e); }
 };
 
 export const getGatewayPositions = async (req, res, next) => {
-  try { const data = await getMonitorGatewayPositionsService(); success(res, data); }
+  try { const data = await getMonitorGatewayPositionsService(req.userCompanyIds); success(res, data); }
   catch (e) { next(e); }
 };
 export const getAlertTracking = async (req, res, next) => {
-  try { const { id } = req.params; const data = await getMonitorAlertTrackingService(parseInt(id)); success(res, data); }
+  try {
+    const { id } = req.params;
+    const alertId = parseInt(id);
+    await assertAlertAccess(req.userCompanyIds, alertId);
+    const data = await getMonitorAlertTrackingService(alertId, req.userCompanyIds);
+    success(res, data);
+  }
   catch (e) { next(e); }
 };
 
@@ -66,22 +86,22 @@ export const getLatestTelemetry = async (req, res, next) => {
 };
 
 export const getReport = async (req, res, next) => {
-  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportService(deviceIds, from, to); success(res, data); }
+  try { const { deviceIds, from, to } = req.body; const validatedIds = await assertDevicesAccess(req.userCompanyIds, deviceIds); const data = await getMonitorReportService(validatedIds, from, to); success(res, data); }
   catch (e) { next(e); }
 };
 
 export const getReportGatewayStats = async (req, res, next) => {
-  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportGatewayStatsService(deviceIds, from, to); success(res, data); }
+  try { const { deviceIds, from, to } = req.body; const validatedIds = await assertDevicesAccess(req.userCompanyIds, deviceIds); const data = await getMonitorReportGatewayStatsService(validatedIds, from, to); success(res, data); }
   catch (e) { next(e); }
 };
 
 export const getReportBattery = async (req, res, next) => {
-  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportBatteryService(deviceIds, from, to); success(res, data); }
+  try { const { deviceIds, from, to } = req.body; const validatedIds = await assertDevicesAccess(req.userCompanyIds, deviceIds); const data = await getMonitorReportBatteryService(validatedIds, from, to); success(res, data); }
   catch (e) { next(e); }
 };
 
 export const getReportConnectivity = async (req, res, next) => {
-  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportConnectivityService(deviceIds, from, to); success(res, data); }
+  try { const { deviceIds, from, to } = req.body; const validatedIds = await assertDevicesAccess(req.userCompanyIds, deviceIds); const data = await getMonitorReportConnectivityService(validatedIds, from, to, req.userCompanyIds); success(res, data); }
   catch (e) { next(e); }
 };
 
@@ -91,17 +111,17 @@ export const getReportExecutive = async (req, res, next) => {
 };
 
 export const getReportAlerts = async (req, res, next) => {
-  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportAlertsService(deviceIds, from, to); success(res, data); }
+  try { const { deviceIds, from, to } = req.body; const validatedIds = await assertDevicesAccess(req.userCompanyIds, deviceIds); const data = await getMonitorReportAlertsService(validatedIds, from, to); success(res, data); }
   catch (e) { next(e); }
 };
 
 export const getReportTemperature = async (req, res, next) => {
-  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportTemperatureService(deviceIds, from, to); success(res, data); }
+  try { const { deviceIds, from, to } = req.body; const validatedIds = await assertDevicesAccess(req.userCompanyIds, deviceIds); const data = await getMonitorReportTemperatureService(validatedIds, from, to); success(res, data); }
   catch (e) { next(e); }
 };
 
 export const getReportGps = async (req, res, next) => {
-  try { const { deviceIds, from, to } = req.body; const data = await getMonitorReportGpsService(deviceIds, from, to); success(res, data); }
+  try { const { deviceIds, from, to } = req.body; const validatedIds = await assertDevicesAccess(req.userCompanyIds, deviceIds); const data = await getMonitorReportGpsService(validatedIds, from, to); success(res, data); }
   catch (e) { next(e); }
 };
 
@@ -111,6 +131,6 @@ export const getReportGateway = async (req, res, next) => {
 };
 
 export const getReportComparative = async (req, res, next) => {
-  try { const { deviceIds, period1Start, period1End, period2Start, period2End } = req.body; const data = await getMonitorReportComparativeService(deviceIds, period1Start, period1End, period2Start, period2End); success(res, data); }
+  try { const { deviceIds, period1Start, period1End, period2Start, period2End } = req.body; const validatedIds = await assertDevicesAccess(req.userCompanyIds, deviceIds); const data = await getMonitorReportComparativeService(validatedIds, period1Start, period1End, period2Start, period2End); success(res, data); }
   catch (e) { next(e); }
 };

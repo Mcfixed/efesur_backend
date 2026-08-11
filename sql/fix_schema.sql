@@ -27,6 +27,6 @@ ALTER TABLE alerts DROP CONSTRAINT IF EXISTS type_check;
 
 ALTER TABLE alerts
   ADD CONSTRAINT alerts_type_check
-  CHECK (type IN ('atencion', 'critica', 'desconexionGW', 'desconexionGPS', 'movimientos_anomalos', 'apertura', 'presencia'));
+  CHECK (type IN ('atencion', 'critica', 'desconexionGW', 'desconexionGPS', 'desconexion220', 'desconexionbatGW', 'movimientos_anomalos', 'apertura', 'presencia'));
 
 COMMIT;

@@ -110,6 +110,26 @@ export const getDisconexionGWAlerts = (companyIds) => {
   `, params);
 };
 
+// Alertas de desconexión de lectores (CA 220V / batería gateway)
+export const getLectorDisconexionAlerts = (companyIds, type) => {
+  const params = [type];
+  let companyFilter = '';
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    companyFilter = ` AND d.company_id = ANY($${params.length}::int[])`;
+  }
+  return pool.query(`
+    SELECT 
+      a.id, a.device_id, a.type, a.status, a.metadata, a.created_at,
+      d.name as device_name
+    FROM alerts a
+    JOIN devices d ON a.device_id = d.id
+    WHERE a.type = $1 AND a.status = 'active'${companyFilter}
+    ORDER BY a.created_at DESC
+    LIMIT 50
+  `, params);
+};
+
 export const getMovimientosAnomalosAlerts = (companyIds) => {
   const params = ['movimientos_anomalos'];
   let companyFilter = '';
@@ -318,7 +338,7 @@ export const getAlertTimeline = async (range, companyIds) => {
       a.status as alert_status
     FROM alerts a
     JOIN devices d ON a.device_id = d.id
-    WHERE (a.type IN ('critica','apertura','presencia','atencion','movimientos_anomalos','desconexionGW','desconexionGPS'))
+    WHERE (a.type IN ('critica','apertura','presencia','atencion','movimientos_anomalos','desconexionGW','desconexionGPS','desconexion220','desconexionbatGW'))
       ${timeFilter}${companyFilter}
     ORDER BY priority ASC, a.created_at DESC
     LIMIT 500

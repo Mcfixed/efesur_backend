@@ -27,6 +27,11 @@ export const errorHandler = (err, req, res, next) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  // Forbidden (multi-tenant access control)
+  if (err.status === 403 || err.statusCode === 403) {
+    return res.status(403).json({ error: err.message || 'Forbidden' });
+  }
+
   // Validation errors
   if (err.statusCode === 400 || err.name === 'ValidationError') {
     return res.status(400).json({ error: err.message || 'Validation failed' });

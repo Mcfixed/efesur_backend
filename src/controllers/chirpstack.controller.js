@@ -1,6 +1,7 @@
 import { getGpsDevicesService, sendCommandService, COMMANDS } from '../services/chirpstack.service.js';
 import { success } from '../utils/response.js';
 import { log } from '../services/audit.service.js';
+import { assertDevEuisAccess } from '../utils/accessControl.js';
 
 export const getCommands = async (req, res) => {
   success(res, Object.entries(COMMANDS).map(([key, cmd]) => ({
@@ -30,6 +31,8 @@ export const sendCommand = async (req, res, next) => {
     if (!command || !COMMANDS[command]) {
       return res.status(400).json({ error: `Comando inválido. Válidos: ${Object.keys(COMMANDS).join(', ')}` });
     }
+    // Validar que los devEuis pertenezcan a empresas del usuario
+    await assertDevEuisAccess(req.userCompanyIds, devEuis);
     const data = await sendCommandService(devEuis, command);
     log({
       userId: req.user?.id,

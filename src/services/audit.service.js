@@ -25,12 +25,13 @@ export const log = async ({ userId, userName, action, details, ip, path, method 
 /**
  * Obtiene logs de auditoría con paginación y filtros.
  */
-export const getLogs = async ({ limit = 50, offset = 0, userId, action, from, to } = {}) => {
+export const getLogs = async ({ limit = 50, offset = 0, userId, userIds, action, from, to } = {}) => {
   const conditions = [];
   const params = [];
   let idx = 0;
 
   if (userId) { idx++; params.push(userId); conditions.push(`user_id = $${idx}`); }
+  if (userIds && userIds.length) { idx++; params.push(userIds); conditions.push(`user_id = ANY($${idx}::text[])`); }
   if (action) { idx++; params.push(action); conditions.push(`action = $${idx}`); }
   if (from) { idx++; params.push(from); conditions.push(`created_at >= $${idx}`); }
   if (to) { idx++; params.push(to); conditions.push(`created_at <= $${idx}`); }

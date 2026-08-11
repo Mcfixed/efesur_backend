@@ -1,9 +1,10 @@
 import * as dashboardService from '../services/dashboard.service.js';
 import * as response from '../utils/response.js';
+import { assertAlertAccess } from '../utils/accessControl.js';
 
 export const getDashboardData = async (req, res, next) => {
   try {
-    const [gpsDevices, criticalAlerts, atencionAlerts, desconexionAlerts, movimientosAnomalos, aperturaAlerts, presenciaAlerts] = await Promise.all([
+    const [gpsDevices, criticalAlerts, atencionAlerts, desconexionAlerts, movimientosAnomalos, aperturaAlerts, presenciaAlerts, desconexion220Alerts, desconexionbatGWAlerts] = await Promise.all([
       dashboardService.getAllGpsDevices(req.userCompanyIds),
       dashboardService.getCriticalAlerts(req.userCompanyIds),
       dashboardService.getAtencionAlerts(req.userCompanyIds),
@@ -11,6 +12,8 @@ export const getDashboardData = async (req, res, next) => {
       dashboardService.getMovimientosAnomalosAlerts(req.userCompanyIds),
       dashboardService.getAperturaAlerts(req.userCompanyIds),
       dashboardService.getPresenciaAlerts(req.userCompanyIds),
+      dashboardService.getLectorDisconexionAlerts(req.userCompanyIds, 'desconexion220'),
+      dashboardService.getLectorDisconexionAlerts(req.userCompanyIds, 'desconexionbatGW'),
     ]);
 
     response.success(res, {
@@ -18,7 +21,7 @@ export const getDashboardData = async (req, res, next) => {
         totalGpsDevices: gpsDevices.rows.length,
         criticalAlertsCount: criticalAlerts.rows.length,
         atencionAlertsCount: atencionAlerts.rows.length,
-        desconexionGWCount: desconexionAlerts.rows.length,
+        desconexionGWCount: desconexionAlerts.rows.length + desconexion220Alerts.rows.length + desconexionbatGWAlerts.rows.length,
         movimientosAnomalosCount: movimientosAnomalos.rows.length,
       },
       devices: gpsDevices.rows,
@@ -26,6 +29,8 @@ export const getDashboardData = async (req, res, next) => {
         critical: criticalAlerts.rows,
         atencion: atencionAlerts.rows,
         desconexionGW: desconexionAlerts.rows,
+        desconexion220: desconexion220Alerts.rows,
+        desconexionbatGW: desconexionbatGWAlerts.rows,
         movimientos_anomalos: movimientosAnomalos.rows,
         apertura: aperturaAlerts.rows,
         presencia: presenciaAlerts.rows,
@@ -41,6 +46,9 @@ export const resolveAlert = async (req, res, next) => {
     const { id } = req.params;
     const { reason, action } = req.body;
     const userId = req.user.id;
+
+    // Validar que la alerta pertenezca a una empresa del usuario
+    await assertAlertAccess(req.userCompanyIds, parseInt(id));
 
     // Obtener dev_eui del dispositivo asociado a la alerta
     const pool = (await import('../config/database.js')).default;
@@ -116,7 +124,7 @@ export const getGatewayStatus = async (req, res, next) => {
 export const getAlertHistory = async (req, res, next) => {
   try {
     const { type, range } = req.query;
-    const validTypes = ['critica', 'atencion', 'gateways', 'movimientos_anomalos', 'apertura', 'presencia'];
+    const validTypes = ['critica', 'atencion', 'gateways', 'movimientos_anomalos', 'apertura', 'presencia', 'desconexion220', 'desconexionbatGW'];
     const validRanges = ['1h', '24h', '7d', '30d', 'total'];
 
     if (!validTypes.includes(type)) {

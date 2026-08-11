@@ -1,6 +1,7 @@
 import * as configService from '../services/config.service.js';
 import * as response from '../utils/response.js';
 import { log } from '../services/audit.service.js';
+import { assertCompanyAccess, assertDeviceAccess, assertUserCompanyAccess, isSuperAdmin } from '../utils/accessControl.js';
 
 // ===== COMPANIES =====
 export const getCompanies = async (req, res, next) => {
@@ -14,7 +15,8 @@ export const getCompanies = async (req, res, next) => {
 
 export const getCompany = async (req, res, next) => {
   try {
-    const result = await configService.getCompanyByIdService(req.params.id);
+    assertCompanyAccess(req, req.params.id);
+    const result = await configService.getCompanyByIdService(req.params.id, req.userCompanyIds);
     if (!result.rows || result.rows.length === 0) {
       return response.notFound(res, 'Company not found');
     }
@@ -36,6 +38,7 @@ export const createCompany = async (req, res, next) => {
 
 export const updateCompany = async (req, res, next) => {
   try {
+    assertCompanyAccess(req, req.params.id);
     const result = await configService.updateCompanyService(req.params.id, req.body);
     if (!result.rows || result.rows.length === 0) {
       return response.notFound(res, 'Company not found');
@@ -49,6 +52,7 @@ export const updateCompany = async (req, res, next) => {
 
 export const deleteCompany = async (req, res, next) => {
   try {
+    assertCompanyAccess(req, req.params.id);
     const result = await configService.deleteCompanyService(req.params.id);
     if (result.rowCount === 0) {
       return response.notFound(res, 'Company not found');
@@ -72,6 +76,7 @@ export const getUsers = async (req, res, next) => {
 
 export const getUser = async (req, res, next) => {
   try {
+    await assertUserCompanyAccess(req.userCompanyIds, req.params.id);
     const result = await configService.getUserByIdService(req.params.id);
     if (!result.rows || result.rows.length === 0) {
       return response.notFound(res, 'User not found');
@@ -84,6 +89,10 @@ export const getUser = async (req, res, next) => {
 
 export const createUser = async (req, res, next) => {
   try {
+    // Solo un superadmin puede crear usuarios superadmin (evita escalada)
+    if (req.body.role === 'superadmin' && !isSuperAdmin(req)) {
+      return res.status(403).json({ error: 'No tiene permisos para asignar el rol superadmin' });
+    }
     const result = await configService.createUserService(req.body);
     log({ userId: req.user?.id, userName: req.user?.name, action: 'create_user', details: { email: req.body.email }, ip: req.ip });
     response.created(res, result.rows[0]);
@@ -94,6 +103,11 @@ export const createUser = async (req, res, next) => {
 
 export const updateUser = async (req, res, next) => {
   try {
+    await assertUserCompanyAccess(req.userCompanyIds, req.params.id);
+    // Solo un superadmin puede asignar/remover el rol superadmin (evita escalada)
+    if (req.body.role === 'superadmin' && !isSuperAdmin(req)) {
+      return res.status(403).json({ error: 'No tiene permisos para asignar el rol superadmin' });
+    }
     const result = await configService.updateUserService(req.params.id, req.body);
     if (!result.rows || result.rows.length === 0) {
       return response.notFound(res, 'User not found');
@@ -107,6 +121,7 @@ export const updateUser = async (req, res, next) => {
 
 export const deleteUser = async (req, res, next) => {
   try {
+    await assertUserCompanyAccess(req.userCompanyIds, req.params.id);
     const result = await configService.deleteUserService(req.params.id);
     if (result.rowCount === 0) {
       return response.notFound(res, 'User not found');
@@ -121,6 +136,8 @@ export const deleteUser = async (req, res, next) => {
 // ===== USER-COMPANY ASSIGNMENTS =====
 export const assignUserToCompany = async (req, res, next) => {
   try {
+    // Un admin_efe solo puede asignar usuarios a empresas a las que pertenece
+    assertCompanyAccess(req, req.body.companyId);
     const result = await configService.assignUserToCompanyService(req.body);
     response.created(res, result.rows[0]);
   } catch (error) {
@@ -130,6 +147,7 @@ export const assignUserToCompany = async (req, res, next) => {
 
 export const removeUserFromCompany = async (req, res, next) => {
   try {
+    assertCompanyAccess(req, req.params.companyId);
     const result = await configService.removeUserFromCompanyService(
       req.params.userId,
       req.params.companyId
@@ -155,6 +173,7 @@ export const getRoles = async (req, res, next) => {
 // ===== COMPANY CONFIG =====
 export const getCompanyConfig = async (req, res, next) => {
   try {
+    assertCompanyAccess(req, req.params.companyId);
     const result = await configService.getCompanyConfigService(req.params.companyId);
     if (!result.rows || result.rows.length === 0) {
       return response.notFound(res, 'Company config not found');
@@ -167,6 +186,7 @@ export const getCompanyConfig = async (req, res, next) => {
 
 export const updateCompanyConfig = async (req, res, next) => {
   try {
+    assertCompanyAccess(req, req.params.companyId);
     const result = await configService.updateCompanyConfigService(
       req.params.companyId,
       req.body
@@ -190,7 +210,8 @@ export const getDevices = async (req, res, next) => {
 
 export const getDevice = async (req, res, next) => {
   try {
-    const result = await configService.getDeviceByIdService(req.params.id);
+    await assertDeviceAccess(req.userCompanyIds, parseInt(req.params.id));
+    const result = await configService.getDeviceByIdService(req.params.id, req.userCompanyIds);
     if (!result.rows || result.rows.length === 0) {
       return response.notFound(res, 'Device not found');
     }
@@ -202,6 +223,13 @@ export const getDevice = async (req, res, next) => {
 
 export const createDevice = async (req, res, next) => {
   try {
+    // Un usuario no-superadmin solo puede crear dispositivos en sus empresas
+    if (!isSuperAdmin(req)) {
+      const allowed = req.userCompanyIds || [];
+      if (!allowed.includes(Number(req.body.company_id))) {
+        return res.status(403).json({ error: 'No tiene acceso a esta empresa' });
+      }
+    }
     const result = await configService.createDeviceService(req.body);
     log({ userId: req.user?.id, userName: req.user?.name, action: 'create_device', details: { name: req.body.name, dev_eui: req.body.dev_eui }, ip: req.ip });
     response.created(res, result.rows[0]);
@@ -212,6 +240,14 @@ export const createDevice = async (req, res, next) => {
 
 export const updateDevice = async (req, res, next) => {
   try {
+    await assertDeviceAccess(req.userCompanyIds, parseInt(req.params.id));
+    // Si se intenta cambiar de empresa, validar que sea una empresa permitida
+    if (!isSuperAdmin(req) && req.body.company_id !== undefined) {
+      const allowed = req.userCompanyIds || [];
+      if (!allowed.includes(Number(req.body.company_id))) {
+        return res.status(403).json({ error: 'No tiene acceso a esta empresa' });
+      }
+    }
     const result = await configService.updateDeviceService(req.params.id, req.body);
     if (!result.rows || result.rows.length === 0) {
       return response.notFound(res, 'Device not found');
@@ -225,6 +261,7 @@ export const updateDevice = async (req, res, next) => {
 
 export const deleteDevice = async (req, res, next) => {
   try {
+    await assertDeviceAccess(req.userCompanyIds, parseInt(req.params.id));
     const result = await configService.deleteDeviceService(req.params.id);
     if (result.rowCount === 0) {
       return response.notFound(res, 'Device not found');
