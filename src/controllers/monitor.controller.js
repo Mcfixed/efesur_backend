@@ -9,8 +9,14 @@ import {
   getMonitorReportGatewayService, getMonitorReportComparativeService,
   getMonitorReportGatewayStatsService,
 } from '../services/monitor.service.js';
+import { getSystemServicesService } from '../services/system.service.js';
 import { success } from '../utils/response.js';
 import { assertDeviceAccess, assertDevicesAccess, assertAlertAccess } from '../utils/accessControl.js';
+
+export const getSystemServices = async (req, res, next) => {
+  try { const data = await getSystemServicesService(); success(res, data); }
+  catch (e) { next(e); }
+};
 
 export const getSummary = async (req, res, next) => {
   try { const data = await getMonitorSummaryService(req.userCompanyIds); success(res, data); }
