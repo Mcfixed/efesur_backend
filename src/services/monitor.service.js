@@ -167,21 +167,24 @@ export const getMonitorDevicesService = async (companyIds) => {
 };
 
 // ─── Telemetría de un dispositivo ──
-export const getMonitorDeviceTelemetryService = async (deviceId, { from, limit = 200, offset = 0 }) => {
-  const params = [deviceId, limit, offset];
-  let fromFilter = '';
-  let countParams = [deviceId];
-  if (from) { fromFilter = ` AND ts >= $4`; params.push(from); countParams.push(from); }
+export const getMonitorDeviceTelemetryService = async (deviceId, { from, to, limit = 200, offset = 0 }) => {
+  const params = [deviceId];
+  const countParams = [deviceId];
+  let filter = '';
+  let idx = 2;
+  if (from) { filter += ` AND ts >= $${idx}`; params.push(from); countParams.push(from); idx++; }
+  if (to) { filter += ` AND ts <= $${idx}`; params.push(to); countParams.push(to); idx++; }
+  params.push(limit, offset);
 
   const telemetry = await pool.query(`
     SELECT id, ts, object, rxinfo
     FROM telemetry_data_all
-    WHERE device_id = $1${fromFilter}
-    ORDER BY ts DESC LIMIT $2 OFFSET $3
+    WHERE device_id = $1${filter}
+    ORDER BY ts DESC LIMIT $${idx} OFFSET $${idx + 1}
   `, params);
 
   const count = await pool.query(`
-    SELECT COUNT(*) as total FROM telemetry_data_all WHERE device_id = $1${from ? ' AND ts >= $2' : ''}
+    SELECT COUNT(*) as total FROM telemetry_data_all WHERE device_id = $1${filter}
   `, countParams);
 
   return { telemetry: telemetry.rows, total: parseInt(count.rows[0].total) };
