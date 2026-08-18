@@ -58,7 +58,6 @@ export const getCriticalAlerts = (companyIds) => {
           SELECT * FROM tracking_alerts ta2 
           WHERE ta2.alert_id = a.id 
           ORDER BY ta2.timestamp DESC 
-          LIMIT 10
         ) ta
       ), '[]') as tracking_data
     FROM alerts a
