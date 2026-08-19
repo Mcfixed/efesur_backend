@@ -84,7 +84,7 @@ export const getAtencionAlerts = (companyIds) => {
     JOIN devices d ON a.device_id = d.id
     WHERE a.type = $1 AND a.status = $2
       AND (a.status_system IS NULL OR a.status_system = 'active')
-    AND (a.created_at AT TIME ZONE 'UTC') >= NOW() - INTERVAL '1 minutes'${companyFilter}
+    AND (a.created_at AT TIME ZONE 'UTC') >= NOW() - INTERVAL '5 minutes'${companyFilter}
     ORDER BY a.created_at DESC
     LIMIT 500
   `, params);
