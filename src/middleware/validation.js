@@ -31,15 +31,29 @@ export const companyValidation = {
 
 export const userValidation = {
   create: [
-    body('email').isEmail().withMessage('Valid email required'),
+    body('email').optional({ values: 'falsy' }).isEmail().withMessage('Valid email required'),
     body('name').trim().notEmpty().withMessage('Name is required'),
-    body('role').optional().isIn(['superadmin', 'admin_efe', 'visualizador']),
+    body('role').optional().isIn(['superadmin', 'admin_efe', 'visualizador', 'contacto']),
+    body('phone_call').optional().isString().isLength({ max: 45 }).withMessage('phone_call inválido'),
+    body('phone_whatsapp').optional().isString().isLength({ max: 45 }).withMessage('phone_whatsapp inválido'),
+    body('is_active').optional().isBoolean().withMessage('is_active debe ser booleano'),
+    body('notify_calls').optional().isBoolean().withMessage('notify_calls debe ser booleano'),
+    body('notify_whatsapp').optional().isBoolean().withMessage('notify_whatsapp debe ser booleano'),
+    body('notify_email').optional().isBoolean().withMessage('notify_email debe ser booleano'),
+    body('notify_email_address').optional({ values: 'falsy' }).isEmail().withMessage('notify_email_address inválido'),
   ],
   update: [
     param('id').isUUID().withMessage('Invalid user ID'),
     body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
     body('image').optional().isURL().withMessage('Image must be a valid URL'),
-    body('role').optional().isIn(['superadmin', 'admin_efe', 'visualizador']),
+    body('role').optional().isIn(['superadmin', 'admin_efe', 'visualizador', 'contacto']),
+    body('phone_call').optional().isString().isLength({ max: 45 }).withMessage('phone_call inválido'),
+    body('phone_whatsapp').optional().isString().isLength({ max: 45 }).withMessage('phone_whatsapp inválido'),
+    body('is_active').optional().isBoolean().withMessage('is_active debe ser booleano'),
+    body('notify_calls').optional().isBoolean().withMessage('notify_calls debe ser booleano'),
+    body('notify_whatsapp').optional().isBoolean().withMessage('notify_whatsapp debe ser booleano'),
+    body('notify_email').optional().isBoolean().withMessage('notify_email debe ser booleano'),
+    body('notify_email_address').optional({ values: 'falsy' }).isEmail().withMessage('notify_email_address inválido'),
   ],
   assignCompany: [
     body('userId').isUUID().withMessage('Valid user ID required'),

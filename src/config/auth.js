@@ -21,6 +21,38 @@ export const auth = betterAuth({
         required: false,
         defaultValue: 'visualizador',
       },
+      phone_call: {
+        type: 'string',
+        required: false,
+      },
+      phone_whatsapp: {
+        type: 'string',
+        required: false,
+      },
+      is_active: {
+        type: 'boolean',
+        required: false,
+        defaultValue: true,
+      },
+      notify_calls: {
+        type: 'boolean',
+        required: false,
+        defaultValue: false,
+      },
+      notify_whatsapp: {
+        type: 'boolean',
+        required: false,
+        defaultValue: false,
+      },
+      notify_email: {
+        type: 'boolean',
+        required: false,
+        defaultValue: false,
+      },
+      notify_email_address: {
+        type: 'string',
+        required: false,
+      },
     },
   },
   session: {
@@ -70,6 +102,16 @@ export const auth = betterAuth({
   databaseHooks: {
     session: {
       create: {
+        before: async (data) => {
+          // Bloquear el login si el usuario está desactivado (is_active = false)
+          try {
+            const r = await pool.query('SELECT is_active FROM users WHERE id = $1', [data.userId]);
+            if (r.rows[0]?.is_active === false) {
+              return false; // cancela la creación de la sesión → no puede iniciar sesión
+            }
+          } catch {}
+          return undefined;
+        },
         after: async (session) => {
           let userName = null;
           try {

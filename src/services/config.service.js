@@ -66,7 +66,8 @@ export const getAllUsersService = (companyIds) => {
     companyFilter = ` WHERE cu.company_id = ANY($${params.length}::int[])`;
   }
   return pool.query(`
-    SELECT u.id, u.email, u.name, u.image, u.role, u.created_at,
+    SELECT u.id, u.email, u.name, u.image, u.role, u.phone_call, u.phone_whatsapp,
+      u.is_active, u.notify_calls, u.notify_whatsapp, u.notify_email, u.notify_email_address, u.created_at,
       COALESCE(json_agg(json_build_object(
         'company_id', cu.company_id, 'company_name', c.name, 'role', cu.role, 'is_active', cu.is_active
       )) FILTER (WHERE cu.company_id IS NOT NULL), '[]') as company_assignments
@@ -78,21 +79,63 @@ export const getAllUsersService = (companyIds) => {
   `, params);
 };
 
+export const getNotificationUsersService = (companyIds) => {
+  // Los superadmins nunca aparecen como usuarios notificables
+  let filter = ` WHERE u.role <> 'superadmin'`;
+  const params = [];
+  if (companyIds && companyIds.length) {
+    params.push(companyIds);
+    filter += ` AND cu.company_id = ANY($${params.length}::int[])`;
+  }
+  return pool.query(`
+    SELECT u.id, u.name, u.email, u.phone_call, u.phone_whatsapp, u.is_active,
+      u.notify_calls, u.notify_whatsapp, u.notify_email, u.notify_email_address, u.role, u.created_at,
+      COALESCE(json_agg(json_build_object('company_id', cu.company_id, 'company_name', c.name))
+        FILTER (WHERE cu.company_id IS NOT NULL), '[]') as company_assignments
+    FROM users u
+    JOIN companies_users cu ON u.id = cu.user_id
+    LEFT JOIN companies c ON cu.company_id = c.id
+    ${filter}
+    GROUP BY u.id
+    ORDER BY u.name
+  `, params);
+};
+
 export const getUserByIdService = (id) => pool.query('SELECT * FROM users WHERE id = $1', [id]);
 
-export const createUserService = async ({ email, name, role, password }) => {
+export const createUserService = async ({ email, name, role, password, phone_call, phone_whatsapp, is_active, notify_calls, notify_whatsapp, notify_email, notify_email_address }) => {
+  const isContact = role === 'contacto';
+  if (!isContact && !email) {
+    const err = new Error('Email es requerido para cuentas de acceso');
+    err.status = 400;
+    throw err;
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     const userRes = await client.query(`
-      INSERT INTO users (email, name, role) VALUES ($1, $2, $3) 
-      RETURNING id, email, name, role, created_at
-    `, [email, name, role || 'visualizador']);
-    
+      INSERT INTO users (email, name, role, phone_call, phone_whatsapp, is_active, notify_calls, notify_whatsapp, notify_email, notify_email_address)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id, email, name, role, phone_call, phone_whatsapp, is_active, notify_calls, notify_whatsapp, notify_email, notify_email_address, created_at
+    `, [
+      isContact ? (email || null) : email,
+      name,
+      role || 'visualizador',
+      phone_call || null,
+      phone_whatsapp || null,
+      isContact ? false : (is_active ?? true),
+      notify_calls ?? false,
+      notify_whatsapp ?? false,
+      notify_email ?? false,
+      notify_email_address || null
+    ]);
+
     const user = userRes.rows[0];
 
-    if (password) {
+    // Los contactos de notificación NUNCA tienen credenciales de acceso al sistema
+    if (password && !isContact) {
       const pass = await bcrypt.hash(password, 10);
       await client.query(
         "INSERT INTO accounts (user_id, account_id, provider_id, password) VALUES ($1, $2, $3, $4)",
@@ -110,7 +153,7 @@ export const createUserService = async ({ email, name, role, password }) => {
   }
 };
 
-export const updateUserService = (id, data) => {
+export const updateUserService = async (id, data) => {
   const fields = [];
   const values = [];
   let idx = 1;
@@ -118,16 +161,46 @@ export const updateUserService = (id, data) => {
   if (data.name !== undefined) { fields.push(`name = $${idx++}`); values.push(data.name); }
   if (data.image !== undefined) { fields.push(`image = $${idx++}`); values.push(data.image); }
   if (data.role !== undefined) { fields.push(`role = $${idx++}`); values.push(data.role); }
+  if (data.phone_call !== undefined) { fields.push(`phone_call = $${idx++}`); values.push(data.phone_call || null); }
+  if (data.phone_whatsapp !== undefined) { fields.push(`phone_whatsapp = $${idx++}`); values.push(data.phone_whatsapp || null); }
+  if (data.is_active !== undefined) { fields.push(`is_active = $${idx++}`); values.push(data.is_active); }
+  if (data.notify_calls !== undefined) { fields.push(`notify_calls = $${idx++}`); values.push(data.notify_calls); }
+  if (data.notify_whatsapp !== undefined) { fields.push(`notify_whatsapp = $${idx++}`); values.push(data.notify_whatsapp); }
+  if (data.notify_email !== undefined) { fields.push(`notify_email = $${idx++}`); values.push(data.notify_email); }
+  if (data.notify_email_address !== undefined) { fields.push(`notify_email_address = $${idx++}`); values.push(data.notify_email_address || null); }
 
   if (fields.length === 0) return pool.query('SELECT * FROM users WHERE id = $1', [id]);
 
   fields.push('updated_at = NOW()');
   values.push(id);
 
-  return pool.query(
+  const result = await pool.query(
     `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
     values
   );
+
+  // Al desactivar un usuario, revocar sus sesiones activas (ya no puede seguir conectado)
+  if (data.is_active === false) {
+    await pool.query('DELETE FROM sessions WHERE user_id = $1', [id]);
+  }
+
+  // Cambio de contraseña (solo el superadmin llega acá con password, para activar un contacto)
+  if (data.password) {
+    const email = data.email || (await pool.query('SELECT email FROM users WHERE id = $1', [id])).rows[0]?.email;
+    if (!email) {
+      const err = new Error('Se requiere un email para asignar contraseña');
+      err.status = 400;
+      throw err;
+    }
+    const pass = await bcrypt.hash(data.password, 10);
+    await pool.query("DELETE FROM accounts WHERE user_id = $1 AND provider_id = 'credential'", [id]);
+    await pool.query(
+      "INSERT INTO accounts (user_id, account_id, provider_id, password) VALUES ($1, $2, 'credential', $3)",
+      [id, email, pass]
+    );
+  }
+
+  return result;
 };
 
 export const deleteUserService = (id) => pool.query('DELETE FROM users WHERE id = $1', [id]);

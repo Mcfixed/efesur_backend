@@ -10,11 +10,18 @@
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE,
     email_verified BOOLEAN DEFAULT false,
     name VARCHAR(255),
     image TEXT,
     role VARCHAR(20) DEFAULT 'visualizador',
+    phone_call VARCHAR(45),
+    phone_whatsapp VARCHAR(45),
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    notify_calls BOOLEAN NOT NULL DEFAULT false,
+    notify_whatsapp BOOLEAN NOT NULL DEFAULT false,
+    notify_email BOOLEAN NOT NULL DEFAULT false,
+    notify_email_address VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

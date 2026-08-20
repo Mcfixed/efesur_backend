@@ -3,7 +3,7 @@ import { companyValidation, userValidation, deviceValidation, validate } from '.
 import { requireRole } from '../utils/accessControl.js';
 import {
   getCompanies, getCompany, createCompany, updateCompany, deleteCompany,
-  getUsers, getUser, createUser, updateUser, deleteUser,
+  getUsers, getUser, createUser, updateUser, deleteUser, getNotificationUsers,
   assignUserToCompany, removeUserFromCompany, getRoles,
   getCompanyConfig, updateCompanyConfig,
   getDevices, getDevice, createDevice, updateDevice, deleteDevice
@@ -24,6 +24,7 @@ router.delete('/companies/:id', requireRole('superadmin', 'admin_efe'), deleteCo
 
 // Users
 router.get('/users', getUsers);
+router.get('/users/notifications', getNotificationUsers);
 router.get('/users/:id', getUser);
 router.post('/users', requireRole('superadmin', 'admin_efe'), userValidation.create, validate, createUser);
 router.put('/users/:id', requireRole('superadmin', 'admin_efe'), userValidation.update, validate, updateUser);

@@ -74,6 +74,15 @@ export const getUsers = async (req, res, next) => {
   }
 };
 
+export const getNotificationUsers = async (req, res, next) => {
+  try {
+    const result = await configService.getNotificationUsersService(req.userCompanyIds);
+    response.success(res, result.rows);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getUser = async (req, res, next) => {
   try {
     await assertUserCompanyAccess(req.userCompanyIds, req.params.id);
@@ -89,12 +98,15 @@ export const getUser = async (req, res, next) => {
 
 export const createUser = async (req, res, next) => {
   try {
-    // Solo un superadmin puede crear usuarios superadmin (evita escalada)
-    if (req.body.role === 'superadmin' && !isSuperAdmin(req)) {
-      return res.status(403).json({ error: 'No tiene permisos para asignar el rol superadmin' });
+    // Un admin_efe solo puede crear CONTACTOS de notificación (sin acceso al sistema).
+    // Solo un superadmin puede crear cuentas reales (con password, rol e is_active).
+    if (!isSuperAdmin(req)) {
+      req.body.role = 'contacto';
+      req.body.is_active = false;
+      delete req.body.password;
     }
     const result = await configService.createUserService(req.body);
-    log({ userId: req.user?.id, userName: req.user?.name, action: 'create_user', details: { email: req.body.email }, ip: req.ip });
+    log({ userId: req.user?.id, userName: req.user?.name, action: 'create_user', details: { email: req.body.email, name: req.body.name }, ip: req.ip });
     response.created(res, result.rows[0]);
   } catch (error) {
     next(error);
@@ -104,9 +116,16 @@ export const createUser = async (req, res, next) => {
 export const updateUser = async (req, res, next) => {
   try {
     await assertUserCompanyAccess(req.userCompanyIds, req.params.id);
-    // Solo un superadmin puede asignar/remover el rol superadmin (evita escalada)
-    if (req.body.role === 'superadmin' && !isSuperAdmin(req)) {
-      return res.status(403).json({ error: 'No tiene permisos para asignar el rol superadmin' });
+    // Un admin_efe solo puede editar CONTACTOS de notificación y sus canales.
+    // NUNCA puede activar acceso (is_active=true), asignar roles de acceso ni cambiar contraseña.
+    if (!isSuperAdmin(req)) {
+      if (req.body.is_active === true) {
+        return res.status(403).json({ error: 'Solo un superadmin puede activar el acceso de un usuario' });
+      }
+      if (req.body.role && req.body.role !== 'contacto') {
+        return res.status(403).json({ error: 'Solo un superadmin puede asignar roles de acceso' });
+      }
+      delete req.body.password;
     }
     const result = await configService.updateUserService(req.params.id, req.body);
     if (!result.rows || result.rows.length === 0) {
