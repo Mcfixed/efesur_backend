@@ -62,6 +62,15 @@ export const resolveAlert = async (req, res, next) => {
     let result = null;
 
     if (action === 'abortar' || action === 'persecucion') {
+      // Regla de estados: si la alerta ya fue ABORTADA es terminal (el sensor volvió a normal),
+      // no se aceptan más comandos. En persecución SÍ se puede abortar después.
+      const stateRes = await pool.query(
+        `SELECT metadata->>'command' AS cmd FROM alerts WHERE id = $1`,
+        [id]
+      );
+      if (stateRes.rows[0]?.cmd === 'abortar') {
+        return res.status(409).json({ error: 'La alerta ya fue abortada; no se pueden enviar más comandos' });
+      }
       // Solo enviar comando, NO resolver la alerta
       if (devEui) {
         const commandKey = action === 'abortar' ? 'ABORTAR' : 'PERSEGUICION';
@@ -69,6 +78,15 @@ export const resolveAlert = async (req, res, next) => {
         await chirpstackService.sendCommandService([devEui], commandKey);
         commandSent = commandKey;
       }
+      // Persistir el comando: estado actual (command/command_at) + historial (commands[])
+      await pool.query(
+        `UPDATE alerts SET metadata = metadata || jsonb_build_object(
+           'command', $1::text,
+           'command_at', NOW(),
+           'commands', COALESCE(metadata->'commands', '[]'::jsonb) || jsonb_build_array(jsonb_build_object('command', $1::text, 'at', NOW()))
+         ) WHERE id = $2`,
+        [action, id]
+      );
       result = { rows: [{ id, action, commandSent, resolved: false }] };
     } else {
       // Resolver la alerta en BD
@@ -76,6 +94,10 @@ export const resolveAlert = async (req, res, next) => {
       if (result.rowCount === 0) {
         return response.notFound(res, 'Alert not found or not critical');
       }
+      // Enviar informe de la alerta resuelta (WhatsApp + correo) en segundo plano, sin bloquear la respuesta
+      const reportService = await import('../services/report.service.js');
+      reportService.sendCriticalReport(parseInt(id, 10))
+        .catch((err) => console.error('[informe] error al generar/enviar:', err));
     }
 
     // Auditoría

@@ -167,7 +167,7 @@ export const getMonitorDevicesService = async (companyIds) => {
 };
 
 // ─── Telemetría de un dispositivo ──
-export const getMonitorDeviceTelemetryService = async (deviceId, { from, to, limit = 200, offset = 0 }) => {
+export const getMonitorDeviceTelemetryService = async (deviceId, { from, to, limit = 1000, offset = 0 }) => {
   const params = [deviceId];
   const countParams = [deviceId];
   let filter = '';

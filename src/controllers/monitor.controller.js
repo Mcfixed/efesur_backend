@@ -54,7 +54,7 @@ export const getDeviceTelemetry = async (req, res, next) => {
     const deviceId = parseInt(id);
     await assertDeviceAccess(req.userCompanyIds, deviceId);
     const { from, to, limit, offset } = req.query;
-    const data = await getMonitorDeviceTelemetryService(deviceId, { from, to, limit: parseInt(limit) || 200, offset: parseInt(offset) || 0 });
+    const data = await getMonitorDeviceTelemetryService(deviceId, { from, to, limit: parseInt(limit) || 1000, offset: parseInt(offset) || 0 });
     success(res, data);
   }
   catch (e) { next(e); }

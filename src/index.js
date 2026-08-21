@@ -93,6 +93,26 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// PDF del informe de alerta crítica (público: lo descarga el WhatsApp Manager por URL)
+app.get('/report/:id.pdf', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'id de alerta inválido' });
+  }
+  try {
+    const { getPdfReport } = await import('./services/pdfReport.service.js');
+    const pdf = await getPdfReport(id);
+    if (!pdf) return res.status(404).json({ error: 'informe no encontrado' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="Informe_Alerta_${id}.pdf"`);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(pdf);
+  } catch (e) {
+    console.error('[report][PDF]', e.message);
+    res.status(500).json({ error: 'error generando el PDF' });
+  }
+});
+
 // JSON parsing — DESPUÉS del handler de better-auth
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
