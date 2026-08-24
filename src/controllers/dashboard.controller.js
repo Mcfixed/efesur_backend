@@ -95,9 +95,13 @@ export const resolveAlert = async (req, res, next) => {
         return response.notFound(res, 'Alert not found or not critical');
       }
       // Enviar informe de la alerta resuelta (WhatsApp + correo) en segundo plano, sin bloquear la respuesta
-      const reportService = await import('../services/report.service.js');
-      reportService.sendCriticalReport(parseInt(id, 10))
-        .catch((err) => console.error('[informe] error al generar/enviar:', err));
+      try {
+        const reportService = await import('../services/report.service.js');
+        reportService.sendCriticalReport(parseInt(id, 10))
+          .catch((err) => console.error('[informe] error al generar/enviar:', err));
+      } catch (e) {
+        console.error('[informe] error al invocar el envío:', e);
+      }
     }
 
     // Auditoría

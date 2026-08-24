@@ -3,6 +3,7 @@ import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import rateLimit from 'express-rate-limit';
 import { toNodeHandler } from 'better-auth/node';
 import config from './config/index.js';
@@ -16,14 +17,28 @@ import chirpstackRouter from './routes/chirpstack.routes.js';
 import auditRouter from './routes/audit.routes.js';
 import monitorRouter from './routes/monitor.routes.js';
 
-// ─── Global error handlers (evitan que el proceso muera) ───
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-});
+// ─── Global error handlers: NUNCA dejan morir el proceso; errores a consola + logs/crash.log ───
+try { mkdirSync('logs', { recursive: true }); } catch { /* ignore */ }
 
-process.on('uncaughtException', (err) => {
-  console.error('❌ Uncaught Exception:', err);
-  // Loggear pero no matar — el proceso sigue funcionando
+function logCrash(tag, err) {
+  const detail = err instanceof Error ? (err.stack || err.message) : String(err);
+  console.error(`❌ ${tag}:`, detail);
+  try { appendFileSync('logs/crash.log', `[${new Date().toISOString()}] ${tag}: ${detail}\n`); } catch { /* ignore */ }
+}
+process.on('unhandledRejection', (reason) => { logCrash('unhandledRejection', reason); });
+process.on('uncaughtException', (err) => { logCrash('uncaughtException', err); });
+// Monitor: se dispara antes que uncaughtException (diagnóstico extra)
+process.on('uncaughtExceptionMonitor', (err, origin) => { logCrash(`uncaughtExceptionMonitor (${origin})`, err); });
+// Registrar cualquier salida del proceso (para diagnosticar reinicios)
+process.on('exit', (code) => {
+  try { appendFileSync('logs/crash.log', `[${new Date().toISOString()}] process exit code=${code}\n`); } catch { /* ignore */ }
+});
+// Hook a process.exit para saber quién lo llama (evita reinicios "misteriosos")
+const __originalExit = process.exit.bind(process);
+process.exit = ((code) => {
+  const stack = new Error('process.exit() fue llamado').stack;
+  try { appendFileSync('logs/crash.log', `[${new Date().toISOString()}] process.exit(${code})\n${stack}\n`); } catch { /* ignore */ }
+  __originalExit(code);
 });
 
 const app = express();
