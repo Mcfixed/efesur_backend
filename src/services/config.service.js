@@ -67,7 +67,7 @@ export const getAllUsersService = (companyIds) => {
   }
   return pool.query(`
     SELECT u.id, u.email, u.name, u.image, u.role, u.phone_call, u.phone_whatsapp,
-      u.is_active, u.notify_calls, u.notify_whatsapp, u.notify_email, u.notify_email_address, u.created_at,
+      u.is_active, u.is_active_notification, u.notify_calls, u.notify_whatsapp, u.notify_email, u.notify_email_address, u.created_at,
       COALESCE(json_agg(json_build_object(
         'company_id', cu.company_id, 'company_name', c.name, 'role', cu.role, 'is_active', cu.is_active
       )) FILTER (WHERE cu.company_id IS NOT NULL), '[]') as company_assignments
@@ -81,7 +81,7 @@ export const getAllUsersService = (companyIds) => {
 
 export const getNotificationUsersService = (companyIds) => {
   // Los superadmins nunca aparecen como usuarios notificables
-  let filter = ` WHERE u.role <> 'superadmin'`;
+  let filter = ` WHERE u.role <> 'superadmin' AND u.is_active_notification = true`;
   const params = [];
   if (companyIds && companyIds.length) {
     params.push(companyIds);
@@ -89,7 +89,7 @@ export const getNotificationUsersService = (companyIds) => {
   }
   return pool.query(`
     SELECT u.id, u.name, u.email, u.phone_call, u.phone_whatsapp, u.is_active,
-      u.notify_calls, u.notify_whatsapp, u.notify_email, u.notify_email_address, u.role, u.created_at,
+      u.is_active_notification, u.notify_calls, u.notify_whatsapp, u.notify_email, u.notify_email_address, u.role, u.created_at,
       COALESCE(json_agg(json_build_object('company_id', cu.company_id, 'company_name', c.name))
         FILTER (WHERE cu.company_id IS NOT NULL), '[]') as company_assignments
     FROM users u
@@ -103,7 +103,7 @@ export const getNotificationUsersService = (companyIds) => {
 
 export const getUserByIdService = (id) => pool.query('SELECT * FROM users WHERE id = $1', [id]);
 
-export const createUserService = async ({ email, name, role, password, phone_call, phone_whatsapp, is_active, notify_calls, notify_whatsapp, notify_email, notify_email_address }) => {
+export const createUserService = async ({ email, name, role, password, phone_call, phone_whatsapp, is_active, notify_calls, notify_whatsapp, notify_email, notify_email_address, is_active_notification }) => {
   const isContact = role === 'contacto';
   if (!isContact && !email) {
     const err = new Error('Email es requerido para cuentas de acceso');
@@ -116,9 +116,9 @@ export const createUserService = async ({ email, name, role, password, phone_cal
     await client.query('BEGIN');
 
     const userRes = await client.query(`
-      INSERT INTO users (email, name, role, phone_call, phone_whatsapp, is_active, notify_calls, notify_whatsapp, notify_email, notify_email_address)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id, email, name, role, phone_call, phone_whatsapp, is_active, notify_calls, notify_whatsapp, notify_email, notify_email_address, created_at
+      INSERT INTO users (email, name, role, phone_call, phone_whatsapp, is_active, notify_calls, notify_whatsapp, notify_email, notify_email_address, is_active_notification)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id, email, name, role, phone_call, phone_whatsapp, is_active, is_active_notification, notify_calls, notify_whatsapp, notify_email, notify_email_address, created_at
     `, [
       isContact ? (email || null) : email,
       name,
@@ -129,7 +129,8 @@ export const createUserService = async ({ email, name, role, password, phone_cal
       notify_calls ?? false,
       notify_whatsapp ?? false,
       notify_email ?? false,
-      notify_email_address || null
+      notify_email_address || null,
+      is_active_notification ?? true // recibe notificaciones independiente del login
     ]);
 
     const user = userRes.rows[0];

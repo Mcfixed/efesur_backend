@@ -96,7 +96,7 @@ async function getRecipients(alertId) {
     JOIN devices d ON a.device_id = d.id
     JOIN companies_users cu ON cu.company_id = d.company_id AND cu.is_active = true
     JOIN users u ON u.id = cu.user_id
-    WHERE a.id = $1 AND u.is_active = true AND (u.notify_whatsapp = true OR u.notify_email = true)
+    WHERE a.id = $1 AND u.is_active_notification = true AND (u.notify_whatsapp = true OR u.notify_email = true)
   `, [alertId]);
   return r.rows;
 }

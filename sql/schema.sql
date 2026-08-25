@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
     phone_call VARCHAR(45),
     phone_whatsapp VARCHAR(45),
     is_active BOOLEAN NOT NULL DEFAULT true,
+    is_active_notification BOOLEAN NOT NULL DEFAULT true,
     notify_calls BOOLEAN NOT NULL DEFAULT false,
     notify_whatsapp BOOLEAN NOT NULL DEFAULT false,
     notify_email BOOLEAN NOT NULL DEFAULT false,
