@@ -120,7 +120,8 @@ export const getLectorDisconexionAlerts = (companyIds, type) => {
   return pool.query(`
     SELECT 
       a.id, a.device_id, a.type, a.status, a.metadata, a.created_at,
-      d.name as device_name
+      d.name as device_name,
+      (SELECT d2.id FROM devices d2 WHERE d2.id_device_father = d.id AND d2.type_device = 'Gateway' LIMIT 1) as gateway_id
     FROM alerts a
     JOIN devices d ON a.device_id = d.id
     WHERE a.type = $1 AND a.status = 'active'${companyFilter}
