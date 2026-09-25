@@ -18,9 +18,13 @@ const pool = new Pool({
   connectionTimeoutMillis: 5000,
 });
 
-// Configurar zona horaria Chile para todas las conexiones
+// Todas las conexiones trabajan en UTC.
+// Las columnas de fecha son `timestamp without time zone` y SIEMPRE guardan UTC,
+// por lo que la sesión debe estar en UTC para que NOW()/CURRENT_TIMESTAMP no
+// introduzcan hora local. La conversión a hora de Chile se hace de forma
+// explícita en las consultas que la necesitan (ver monitor.service.js).
 pool.on('connect', (client) => {
-  client.query("SET timezone = 'America/Santiago'").catch(err => {
+  client.query("SET timezone = 'UTC'").catch(err => {
     console.error('Error setting timezone on client:', err.message);
   });
 });

@@ -1,5 +1,30 @@
 import pool from '../config/database.js';
 
+// ─── Zona horaria ────────────────────────────────────────────────────────────
+// Todas las columnas de fecha son `timestamp without time zone` y guardan UTC.
+// Las reglas de negocio (día, mes, "hoy") se evalúan en hora de Chile.
+// Se declaran de forma explícita para NO depender del TimeZone de la sesión.
+const TZ = 'America/Santiago';
+
+const NOW_CL = `(now() AT TIME ZONE '${TZ}')`;   // ahora, en hora de Chile
+const TODAY_CL = `(${NOW_CL})::date`;             // fecha de hoy en Chile
+
+// 00:00 de una fecha de Chile, expresado en UTC (naive).
+// Permite filtrar de forma directa (sargable, usando índices) sobre columnas naive-UTC.
+const DAY_START_UTC = (chileDate) =>
+  `((${chileDate})::timestamp AT TIME ZONE '${TZ}' AT TIME ZONE 'UTC')`;
+
+// Columna naive-UTC -> naive Chile (para agrupar por día o extraer el mes)
+const TO_CL = (column) => `((${column} AT TIME ZONE 'UTC') AT TIME ZONE '${TZ}')`;
+
+// ¿La marca de tiempo cae dentro del día de HOY en Chile?
+const IS_TODAY_CL = (column) =>
+  `${column} >= ${DAY_START_UTC(TODAY_CL)} AND ${column} < ${DAY_START_UTC(`(${TODAY_CL}) + 1`)}`;
+
+// ¿Cae dentro del día de Chile correspondiente a una fecha dada ($n)?
+const IS_DAY_CL = (column, dateSql) =>
+  `${column} >= ${DAY_START_UTC(dateSql)} AND ${column} < ${DAY_START_UTC(`(${dateSql})::date + 1`)}`;
+
 // ─── Resumen: totales, cobertura, alertas ──
 export const getMonitorSummaryService = async (companyIds) => {
   let filter = '';
@@ -12,17 +37,17 @@ export const getMonitorSummaryService = async (companyIds) => {
   const cobertura = await pool.query(`
     SELECT COUNT(DISTINCT t.device_id) as activos FROM telemetry_data_all t
     JOIN devices d ON t.device_id = d.id
-    WHERE d.is_active = true AND t.ts >= CURRENT_DATE${filter}
+    WHERE d.is_active = true AND t.ts >= ${DAY_START_UTC(TODAY_CL)}${filter}
   `, p);
   const activosHoy = parseInt(cobertura.rows[0].activos);
 
   const alertas = await pool.query(`
     SELECT
-      COUNT(*) FILTER (WHERE a.type = 'critica' AND (a.status_system = 'active' OR a.status_system IS NULL) AND DATE(a.created_at) = CURRENT_DATE) as criticas,
-      COUNT(*) FILTER (WHERE a.type = 'atencion' AND DATE(a.created_at) = CURRENT_DATE) as atencion,
-      COUNT(*) FILTER (WHERE a.type = 'apertura' AND DATE(a.created_at) = CURRENT_DATE) as apertura,
-      COUNT(*) FILTER (WHERE a.type = 'presencia' AND DATE(a.created_at) = CURRENT_DATE) as presencia,
-      COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos' AND DATE(a.created_at) = CURRENT_DATE) as movimientos,
+      COUNT(*) FILTER (WHERE a.type = 'critica' AND (a.status_system = 'active' OR a.status_system IS NULL) AND ${IS_TODAY_CL('a.created_at')}) as criticas,
+      COUNT(*) FILTER (WHERE a.type = 'atencion' AND ${IS_TODAY_CL('a.created_at')}) as atencion,
+      COUNT(*) FILTER (WHERE a.type = 'apertura' AND ${IS_TODAY_CL('a.created_at')}) as apertura,
+      COUNT(*) FILTER (WHERE a.type = 'presencia' AND ${IS_TODAY_CL('a.created_at')}) as presencia,
+      COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos' AND ${IS_TODAY_CL('a.created_at')}) as movimientos,
       COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS','desconexion220','desconexionbatGW') AND a.status = 'active') as desconexion
     FROM alerts a JOIN devices d ON a.device_id = d.id WHERE 1=1${filter}
   `, p);
@@ -43,10 +68,10 @@ export const getMonitorActiveSensorsService = async (companyIds) => {
   let filter = ''; const p = [];
   if (companyIds?.length) { p.push(companyIds); filter = ` AND d.company_id = ANY($${p.length}::int[])`; }
   const r = await pool.query(`
-    SELECT DATE(t.ts) as dia, COUNT(DISTINCT t.device_id) as activos
+    SELECT ${TO_CL('t.ts')}::date as dia, COUNT(DISTINCT t.device_id) as activos
     FROM telemetry_data_all t JOIN devices d ON t.device_id = d.id
-    WHERE d.is_active = true AND t.ts >= CURRENT_DATE - INTERVAL '30 days'${filter}
-    GROUP BY DATE(t.ts) ORDER BY dia ASC
+    WHERE d.is_active = true AND t.ts >= ${DAY_START_UTC(TODAY_CL)} - INTERVAL '30 days'${filter}
+    GROUP BY ${TO_CL('t.ts')}::date ORDER BY dia ASC
   `, p);
   return r.rows;
 };
@@ -56,7 +81,7 @@ export const getMonitorAlertsPerDayService = async (companyIds) => {
   let filter = ''; const p = [];
   if (companyIds?.length) { p.push(companyIds); filter = ` AND d.company_id = ANY($${p.length}::int[])`; }
   const r = await pool.query(`
-    SELECT DATE(a.created_at) as dia,
+    SELECT ${TO_CL('a.created_at')}::date as dia,
       COUNT(*) FILTER (WHERE a.type = 'critica') as criticas,
       COUNT(*) FILTER (WHERE a.type = 'atencion') as atencion,
       COUNT(*) FILTER (WHERE a.type = 'apertura') as apertura,
@@ -64,8 +89,8 @@ export const getMonitorAlertsPerDayService = async (companyIds) => {
       COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos') as movimientos,
       COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS','desconexion220','desconexionbatGW')) as desconexion
     FROM alerts a JOIN devices d ON a.device_id = d.id
-    WHERE a.created_at >= CURRENT_DATE - INTERVAL '30 days'${filter}
-    GROUP BY DATE(a.created_at) ORDER BY dia ASC
+    WHERE a.created_at >= ${DAY_START_UTC(TODAY_CL)} - INTERVAL '30 days'${filter}
+    GROUP BY ${TO_CL('a.created_at')}::date ORDER BY dia ASC
   `, p);
   return r.rows;
 };
@@ -75,7 +100,7 @@ export const getMonitorCalendarService = async (companyIds, year, month) => {
   let filter = ''; const p = [`${year}-${String(month).padStart(2, '0')}-01`];
   if (companyIds?.length) { p.push(companyIds); filter = ` AND d.company_id = ANY($${p.length}::int[])`; }
   const r = await pool.query(`
-    SELECT EXTRACT(DAY FROM a.created_at) as dia, COUNT(*) as total,
+    SELECT EXTRACT(DAY FROM ${TO_CL('a.created_at')}) as dia, COUNT(*) as total,
       COUNT(*) FILTER (WHERE a.type = 'critica') as criticas,
       COUNT(*) FILTER (WHERE a.type = 'atencion') as atencion,
       COUNT(*) FILTER (WHERE a.type = 'apertura') as apertura,
@@ -83,8 +108,8 @@ export const getMonitorCalendarService = async (companyIds, year, month) => {
       COUNT(*) FILTER (WHERE a.type = 'movimientos_anomalos') as movimientos,
       COUNT(*) FILTER (WHERE a.type IN ('desconexionGW','desconexionGPS','desconexion220','desconexionbatGW')) as desconexion
     FROM alerts a JOIN devices d ON a.device_id = d.id
-    WHERE a.created_at >= $1::date AND a.created_at < $1::date + INTERVAL '1 month'${filter}
-    GROUP BY EXTRACT(DAY FROM a.created_at) ORDER BY dia ASC
+    WHERE a.created_at >= ${DAY_START_UTC('$1')} AND a.created_at < ${DAY_START_UTC(`($1::date + INTERVAL '1 month')`)}${filter}
+    GROUP BY EXTRACT(DAY FROM ${TO_CL('a.created_at')}) ORDER BY dia ASC
   `, p);
   return r.rows;
 };
@@ -96,7 +121,7 @@ export const getMonitorAlertsByDateService = async (companyIds, date) => {
   const r = await pool.query(`
     SELECT a.id, a.type, a.status, a.metadata, a.created_at, d.name as device_name, d.type_device
     FROM alerts a JOIN devices d ON a.device_id = d.id
-    WHERE DATE(a.created_at) = $1${filter} ORDER BY a.created_at DESC
+    WHERE ${IS_DAY_CL('a.created_at', '$1')}${filter} ORDER BY a.created_at DESC
   `, p);
   return r.rows;
 };
@@ -322,9 +347,9 @@ export const getMonitorReportExecutiveService = async (companyIds) => {
 
   const [totalDev, activeToday, alertCounts, topAlertDevices, gwStatus] = await Promise.all([
     pool.query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE is_active = true) as activos FROM devices d WHERE 1=1${filter}`, p),
-    pool.query(`SELECT COUNT(DISTINCT t.device_id) as activos FROM telemetry_data_all t JOIN devices d ON t.device_id = d.id WHERE t.ts >= CURRENT_DATE${filter}`, p),
-    pool.query(`SELECT a.type, COUNT(*) as total FROM alerts a JOIN devices d ON a.device_id = d.id WHERE a.created_at >= CURRENT_DATE - INTERVAL '30 days'${filter.replace('d.', 'd.')} GROUP BY a.type`, p),
-    pool.query(`SELECT d.id, d.name, d.type_device, COUNT(a.id) as total FROM alerts a JOIN devices d ON a.device_id = d.id WHERE a.created_at >= CURRENT_DATE - INTERVAL '30 days'${filter.replace('d.', 'd.')} GROUP BY d.id, d.name, d.type_device ORDER BY total DESC LIMIT 5`, p),
+    pool.query(`SELECT COUNT(DISTINCT t.device_id) as activos FROM telemetry_data_all t JOIN devices d ON t.device_id = d.id WHERE t.ts >= ${DAY_START_UTC(TODAY_CL)}${filter}`, p),
+    pool.query(`SELECT a.type, COUNT(*) as total FROM alerts a JOIN devices d ON a.device_id = d.id WHERE a.created_at >= ${DAY_START_UTC(TODAY_CL)} - INTERVAL '30 days'${filter.replace('d.', 'd.')} GROUP BY a.type`, p),
+    pool.query(`SELECT d.id, d.name, d.type_device, COUNT(a.id) as total FROM alerts a JOIN devices d ON a.device_id = d.id WHERE a.created_at >= ${DAY_START_UTC(TODAY_CL)} - INTERVAL '30 days'${filter.replace('d.', 'd.')} GROUP BY d.id, d.name, d.type_device ORDER BY total DESC LIMIT 5`, p),
     pool.query(`SELECT d.id, d.name, d.last_seen, gw.firmware_version FROM devices d LEFT JOIN gateway_device gw ON d.id = gw.id WHERE d.type_device = 'Gateway'${filter}`, p),
   ]);
 

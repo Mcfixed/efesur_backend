@@ -152,7 +152,7 @@ export const getMovimientosAnomalosAlerts = (companyIds) => {
 };
 
 export const getAperturaAlerts = (companyIds) => {
-  const params = ['apertura'];
+  const params = ['apertura', ALERT_STATUSES.ACTIVE];
   let companyFilter = '';
   if (companyIds && companyIds.length) {
     params.push(companyIds);
@@ -165,15 +165,14 @@ export const getAperturaAlerts = (companyIds) => {
       (SELECT d2.id FROM devices d2 WHERE d2.id_device_father = d.id AND d2.type_device = 'Gateway' LIMIT 1) as gateway_id
     FROM alerts a
     JOIN devices d ON a.device_id = d.id
-    WHERE a.type = $1
-      AND (a.created_at AT TIME ZONE 'UTC') >= NOW() - INTERVAL '30 minutes'${companyFilter}
+    WHERE a.type = $1 AND a.status = $2${companyFilter}
     ORDER BY a.created_at DESC
     LIMIT 500
   `, params);
 };
 
 export const getPresenciaAlerts = (companyIds) => {
-  const params = ['presencia'];
+  const params = ['presencia', ALERT_STATUSES.ACTIVE];
   let companyFilter = '';
   if (companyIds && companyIds.length) {
     params.push(companyIds);
@@ -186,8 +185,7 @@ export const getPresenciaAlerts = (companyIds) => {
       (SELECT d2.id FROM devices d2 WHERE d2.id_device_father = d.id AND d2.type_device = 'Gateway' LIMIT 1) as gateway_id
     FROM alerts a
     JOIN devices d ON a.device_id = d.id
-    WHERE a.type = $1
-      AND (a.created_at AT TIME ZONE 'UTC') >= NOW() - INTERVAL '30 minutes'${companyFilter}
+    WHERE a.type = $1 AND a.status = $2${companyFilter}
     ORDER BY a.created_at DESC
     LIMIT 500
   `, params);
@@ -195,7 +193,7 @@ export const getPresenciaAlerts = (companyIds) => {
 
 export const resolveAlertById = (id, userId, reason) => pool.query(`
   UPDATE alerts 
-  SET status_system = $1, user_id = $2, user_reason = $3, resolved_at = NOW()
+  SET status_system = $1, user_id = $2, user_reason = $3, resolved_at = NOW() AT TIME ZONE 'UTC'
   WHERE id = $4 AND type = $5
   RETURNING *
 `, [ALERT_STATUSES.RESOLVED, userId, reason, id, ALERT_TYPES.CRITICA]);

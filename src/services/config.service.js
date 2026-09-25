@@ -45,7 +45,7 @@ export const updateCompanyService = (id, data) => {
 
   if (fields.length === 0) return pool.query('SELECT * FROM companies WHERE id = $1', [id]);
 
-  fields.push('updated_at = NOW()');
+  fields.push("updated_at = NOW() AT TIME ZONE 'UTC'");
   values.push(id);
 
   return pool.query(
@@ -172,7 +172,7 @@ export const updateUserService = async (id, data) => {
 
   if (fields.length === 0) return pool.query('SELECT * FROM users WHERE id = $1', [id]);
 
-  fields.push('updated_at = NOW()');
+  fields.push("updated_at = NOW() AT TIME ZONE 'UTC'");
   values.push(id);
 
   const result = await pool.query(
@@ -350,7 +350,7 @@ export const updateDeviceService = async (id, data) => {
 
     let result;
     if (fields.length > 0) {
-      fields.push('updated_at = NOW()');
+      fields.push("updated_at = NOW() AT TIME ZONE 'UTC'");
       values.push(id);
       result = await client.query(
         `UPDATE devices SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
