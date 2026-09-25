@@ -328,7 +328,8 @@ export const getAlertTimeline = async (range, companyIds) => {
   const result = await pool.query(`
     SELECT 
       a.id, a.device_id, a.type, a.status, a.status_system, a.metadata, a.created_at, a.resolved_at, a.user_reason,
-      d.name as device_name, d.dev_eui,
+      d.name as device_name, d.dev_eui, d.latitude_current, d.longitude_current,
+      (SELECT d2.id FROM devices d2 WHERE d2.id_device_father = d.id AND d2.type_device = 'Gateway' LIMIT 1) as gateway_id,
       CASE 
         WHEN a.type = 'critica' AND (a.status_system = 'active' OR a.status_system IS NULL) THEN 0
         ELSE 1
