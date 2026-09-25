@@ -1,16 +1,14 @@
 import pool from '../config/database.js';
 
 // ─── Zona horaria ────────────────────────────────────────────────────────────
-// Todas las columnas de fecha son `timestamp without time zone` y guardan UTC.
-// Las reglas de negocio (día, mes, "hoy") se evalúan en hora de Chile.
-// Se declaran de forma explícita para NO depender del TimeZone de la sesión.
+// Columnas de fecha: `timestamp without time zone` con UTC dentro; las reglas de negocio
+// (día, mes, "hoy") se evalúan en hora de Chile, sin depender del TimeZone de la sesión.
 const TZ = 'America/Santiago';
 
 const NOW_CL = `(now() AT TIME ZONE '${TZ}')`;   // ahora, en hora de Chile
 const TODAY_CL = `(${NOW_CL})::date`;             // fecha de hoy en Chile
 
-// 00:00 de una fecha de Chile, expresado en UTC (naive).
-// Permite filtrar de forma directa (sargable, usando índices) sobre columnas naive-UTC.
+// 00:00 de Chile expresado en UTC (naive): filtrable con índices sobre columnas naive-UTC.
 const DAY_START_UTC = (chileDate) =>
   `((${chileDate})::timestamp AT TIME ZONE '${TZ}' AT TIME ZONE 'UTC')`;
 
@@ -401,8 +399,7 @@ export const getMonitorReportAlertsService = async (deviceIds, from, to) => {
 };
 
 // ─── Stats reales de gateways: sensores únicos, registros, redundancia ──
-// Cuenta, para cada gateway seleccionado, los sensores que realmente le reportaron
-// en el período, buscando su gatewayId dentro del rxinfo de telemetry_data_all.
+// Para cada gateway: sensores que le reportaron en el período (gatewayId en el rxinfo).
 export const getMonitorReportGatewayStatsService = async (deviceIds, from, to) => {
   const gateways = await pool.query(`
     SELECT d.id, d.dev_eui, d.name

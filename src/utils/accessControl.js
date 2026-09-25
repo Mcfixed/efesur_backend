@@ -1,29 +1,16 @@
 import pool from '../config/database.js';
 
-/**
- * Utilidades de control de acceso multi-tenant.
- *
- * Convención de `req.userCompanyIds` (seteado en middleware/auth.js):
- *  - superadmin  → undefined (ve todo, sin filtro)
- *  - usuario con empresas → [ids...]
- *  - usuario sin empresas  → [-1] (filtro ANY no retorna nada)
- */
+// Control de acceso multi-tenant. req.userCompanyIds (middleware/auth.js):
+// superadmin → undefined (ve todo), con empresas → [ids], sin empresas → [-1].
 
-/** ¿El usuario es superadmin (ve todo)? */
 export const isSuperAdmin = (req) => req.user?.role === 'superadmin';
 
-/** Error tipificado para respuestas 403/404 */
 const forbidden = (msg = 'No tiene acceso a este recurso') => {
   const err = new Error(msg);
   err.status = 403;
   return err;
 };
 
-/**
- * Valida que `companyId` pertenezca a las empresas del usuario.
- * Superadmin siempre pasa.
- * @throws {Error} con err.status = 403 si no tiene acceso.
- */
 export const assertCompanyAccess = (req, companyId) => {
   if (isSuperAdmin(req)) return;
   const ids = req.userCompanyIds || [];
@@ -32,11 +19,6 @@ export const assertCompanyAccess = (req, companyId) => {
   }
 };
 
-/**
- * Valida que un dispositivo pertenezca a las empresas del usuario.
- * Superadmin siempre pasa.
- * @throws {Error} 403 si no tiene acceso.
- */
 export const assertDeviceAccess = async (companyIds, deviceId) => {
   if (!companyIds || companyIds.length === 0) return; // superadmin
   const r = await pool.query(
@@ -48,11 +30,6 @@ export const assertDeviceAccess = async (companyIds, deviceId) => {
   }
 };
 
-/**
- * Valida que TODOS los deviceIds pertenezcan a las empresas del usuario.
- * Superadmin siempre pasa. Lanza 403 si alguno no pertenece.
- * @returns {Promise<number[]>} deviceIds numéricos ya validados.
- */
 export const assertDevicesAccess = async (companyIds, deviceIds) => {
   if (!companyIds || companyIds.length === 0) return deviceIds; // superadmin
   if (!Array.isArray(deviceIds) || deviceIds.length === 0) return deviceIds;
@@ -69,12 +46,6 @@ export const assertDevicesAccess = async (companyIds, deviceIds) => {
   return numericIds;
 };
 
-/**
- * Valida que una alerta pertenezca a las empresas del usuario
- * (uniendo con devices para verificar company_id).
- * Superadmin siempre pasa.
- * @throws {Error} 403 si no tiene acceso.
- */
 export const assertAlertAccess = async (companyIds, alertId) => {
   if (!companyIds || companyIds.length === 0) return; // superadmin
   const r = await pool.query(
@@ -88,11 +59,6 @@ export const assertAlertAccess = async (companyIds, alertId) => {
   }
 };
 
-/**
- * Valida que un usuario esté asignado a alguna de las empresas del solicitante.
- * Superadmin siempre pasa.
- * @throws {Error} 403 si no tiene acceso.
- */
 export const assertUserCompanyAccess = async (companyIds, userId) => {
   if (!companyIds || companyIds.length === 0) return; // superadmin
   const r = await pool.query(
@@ -104,10 +70,6 @@ export const assertUserCompanyAccess = async (companyIds, userId) => {
   }
 };
 
-/**
- * Valida que una lista de devEuis pertenezca a las empresas del usuario.
- * Superadmin siempre pasa. Lanza 403 si alguno no pertenece.
- */
 export const assertDevEuisAccess = async (companyIds, devEuis) => {
   if (!companyIds || companyIds.length === 0) return; // superadmin
   if (!Array.isArray(devEuis) || devEuis.length === 0) return;
@@ -122,10 +84,7 @@ export const assertDevEuisAccess = async (companyIds, devEuis) => {
   }
 };
 
-/**
- * Middleware Express: restringe la ruta a los roles indicados.
- * Uso: router.get('/x', requireRole('superadmin', 'admin_efe'), handler)
- */
+// Uso: router.get('/x', requireRole('superadmin', 'admin_efe'), handler)
 export const requireRole = (...roles) => (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized' });
