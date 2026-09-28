@@ -147,12 +147,25 @@ async function buildReportData(alertId) {
  * @returns {Promise<Buffer|null>}
  */
 export async function getPdfReport(alertId) {
-  if (pdfCache.has(alertId)) return pdfCache.get(alertId);
+  if (pdfCache.has(alertId)) {
+    console.log(`[informe][PDF] alerta ${alertId}: desde cache`);
+    return pdfCache.get(alertId);
+  }
   const data = await buildReportData(alertId);
-  if (!data) return null;
-  const buffer = await renderInWorker(data);
-  pdfCache.set(alertId, buffer);
-  return buffer;
+  if (!data) {
+    console.warn(`[informe][PDF] alerta ${alertId}: no se encontró la alerta`);
+    return null;
+  }
+  const t0 = Date.now();
+  try {
+    const buffer = await renderInWorker(data);
+    console.log(`[informe][PDF] alerta ${alertId}: OK ${(buffer.length / 1024).toFixed(0)} KB en ${((Date.now() - t0) / 1000).toFixed(1)}s (tope del worker: 90s)`);
+    pdfCache.set(alertId, buffer);
+    return buffer;
+  } catch (e) {
+    console.error(`[informe][PDF] alerta ${alertId}: FALLÓ a los ${((Date.now() - t0) / 1000).toFixed(1)}s -> ${e.message}`);
+    throw e;
+  }
 }
 
 /** Limpia el cache (útil en pruebas). */

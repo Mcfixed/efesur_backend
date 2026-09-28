@@ -6,14 +6,37 @@
 import { existsSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
 
-const EDGE_X86 = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-const EDGE_X64 = 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe';
-const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+// Rutas típicas del navegador según el SO (el servidor no tiene por qué ser Windows)
+const CANDIDATOS = process.platform === 'win32'
+  ? [
+      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    ]
+  : process.platform === 'darwin'
+    ? [
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      ]
+    : [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/snap/bin/chromium',
+        '/usr/bin/microsoft-edge',
+      ];
 
 let _browser = null;
 
 function findBrowser() {
-  for (const p of [EDGE_X86, EDGE_X64, CHROME]) {
+  // 1) Ruta explícita por .env (útil en servidores con rutas no estándar)
+  const env = (process.env.PUPPETEER_EXECUTABLE_PATH || '').trim();
+  if (env && existsSync(env)) return env;
+  // 2) Rutas típicas del SO
+  for (const p of CANDIDATOS) {
     if (existsSync(p)) return p;
   }
   return null;
@@ -23,13 +46,18 @@ async function getBrowser() {
   if (_browser) return _browser;
   const executablePath = findBrowser();
   if (!executablePath) {
-    throw new Error('No se encontró Edge/Chrome instalado para generar el PDF del informe');
+    throw new Error(
+      `No se encontró Edge/Chrome para generar el PDF del informe (SO: ${process.platform}). ` +
+      `Rutas probadas: ${CANDIDATOS.join(' | ')}. ` +
+      `Instala un navegador o define PUPPETEER_EXECUTABLE_PATH en el .env`
+    );
   }
   _browser = await puppeteer.launch({
     executablePath,
     headless: true,
     args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
   });
+  console.log('[pdfWorker] navegador:', executablePath);
   _browser.on('disconnected', () => { _browser = null; });
   return _browser;
 }

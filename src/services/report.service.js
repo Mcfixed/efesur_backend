@@ -67,16 +67,16 @@ async function getRecipients(alertId) {
 
 // ─── Formato del informe ─────────────────────────────────────────────────────
 function buildWhatsAppText(r) {
-  let t = `🔴 *INFORME ALERTA CRÍTICA RESUELTA*\n\n`;
-  t += `📍 *Dispositivo:* ${r.device_name}\n`;
-  t += `🔢 *EUI:* ${r.dev_eui}\n`;
-  t += `⏱️ *Inicio:* ${fmtDate(r.created_at)}\n`;
-  t += `⏹️ *Fin:* ${fmtDate(r.resolved_at)}\n`;
-  t += `🕐 *Duración:* ${r.duration}\n`;
-  t += `👤 *Resuelta por:* ${r.resolved_by}\n`;
-  t += `📝 *Motivo:* ${r.reason}\n`;
-  t += `⚡ *Comandos:* ${r.commands}\n`;
-  t += `🗺️ *Puntos de track:* ${r.track_points}`;
+  let t = `[BOT AST] 🔴 *INFORME ALERTA CRÍTICA RESUELTA*\n\n`;
+  t += ` *Dispositivo:* ${r.device_name}\n`;
+  t += ` *EUI:* ${r.dev_eui}\n`;
+  t += ` *Inicio:* ${fmtDate(r.created_at)}\n`;
+  t += ` *Fin:* ${fmtDate(r.resolved_at)}\n`;
+  t += ` *Duración:* ${r.duration}\n`;
+  t += ` *Resuelta por:* ${r.resolved_by}\n`;
+  t += ` *Motivo:* ${r.reason}\n`;
+  t += ` *Comandos:* ${r.commands}\n`;
+  t += ` *Puntos de track:* ${r.track_points}`;
   return t;
 }
 
@@ -135,9 +135,7 @@ export async function buildCriticalReport(alertId) {
 }
 
 /**
- * Envía el informe (WhatsApp + correo) a los usuarios notificables de la empresa
- * del dispositivo. Se ejecuta en segundo plano; los errores por canal se registran
- * sin cortar el flujo principal.
+ * Envía el informe (WhatsApp + correo) a los usuarios notificables de la empresa asincrono
  */
 export async function sendCriticalReport(alertId) {
   const report = await buildCriticalReport(alertId);
@@ -154,12 +152,14 @@ export async function sendCriticalReport(alertId) {
 
   // Generar el PDF del informe (adjunto del CORREO; WhatsApp se mantiene en texto)
   let pdf = null;
+  const t0 = Date.now();
   try {
     const { getPdfReport } = await import('./pdfReport.service.js');
     pdf = await getPdfReport(alertId);
   } catch (e) {
-    console.error('[informe][PDF]', e.message);
+    console.error(`[informe][PDF] alerta ${alertId}: ${e.message}`);
   }
+  console.log(`[informe] alerta ${alertId}: PDF ${pdf ? `listo (${(pdf.length / 1024).toFixed(0)} KB)` : 'NO DISPONIBLE (el correo irá sin adjunto)'} en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   const fileName = `Informe_Alerta_${alertId}.pdf`;
 
   const whatsapp = await import('./whatsapp.service.js');
@@ -176,7 +176,7 @@ export async function sendCriticalReport(alertId) {
         ? [{ filename: fileName, content: pdf, contentType: 'application/pdf' }]
         : [];
       email.sendEmail(user.email, `Informe alerta crítica - ${report.device_name}`, emailHtml, attachments)
-        .then(() => console.log(`[informe][Correo] OK → ${user.email}${pdf ? ' (con PDF)' : ''}`))
+        .then(() => console.log(`[informe][Correo] OK → ${user.email}${pdf ? ' (con PDF adjunto)' : ' (SIN PDF adjunto)'}`))
         .catch((e) => console.error('[informe][Correo]', user.email, e.message));
     }
   }
