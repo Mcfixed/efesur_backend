@@ -190,25 +190,42 @@ export const getMonitorDevicesService = async (companyIds) => {
 };
 
 // ─── Telemetría de un dispositivo ──
-export const getMonitorDeviceTelemetryService = async (deviceId, { from, to, limit = 1000, offset = 0 }) => {
-  const params = [deviceId];
-  const countParams = [deviceId];
+export const getMonitorDeviceTelemetryService = async (deviceId, { from, to, limit = 1000, offset = 0, sample = 0 }) => {
+  const rangeParams = [deviceId];
   let filter = '';
-  let idx = 2;
-  if (from) { filter += ` AND ts >= $${idx}`; params.push(from); countParams.push(from); idx++; }
-  if (to) { filter += ` AND ts <= $${idx}`; params.push(to); countParams.push(to); idx++; }
-  params.push(limit, offset);
+  if (from) { rangeParams.push(from); filter += ` AND ts >= $${rangeParams.length}`; }
+  if (to) { rangeParams.push(to); filter += ` AND ts <= $${rangeParams.length}`; }
+
+  const count = await pool.query(`
+    SELECT COUNT(*) as total FROM telemetry_data_all WHERE device_id = $1${filter}
+  `, rangeParams);
+
+  // Modo gráfico: reparte ~`sample` filas sobre TODO el rango (antes se traían solo
+  // las más nuevas, así que el gráfico nunca cubría rangos largos).
+  if (sample > 0) {
+    const telemetry = await pool.query(`
+      WITH rango AS (
+        SELECT id, ts, object, rxinfo,
+               row_number() OVER (ORDER BY ts) AS rn,
+               count(*) OVER () AS total
+        FROM telemetry_data_all
+        WHERE device_id = $1${filter}
+      )
+      SELECT id, ts, object, rxinfo
+      FROM rango
+      WHERE total <= $${rangeParams.length + 1}
+         OR (rn - 1) % CEIL(total::numeric / $${rangeParams.length + 1}) = 0
+      ORDER BY ts ASC
+    `, [...rangeParams, sample]);
+    return { telemetry: telemetry.rows, total: parseInt(count.rows[0].total) };
+  }
 
   const telemetry = await pool.query(`
     SELECT id, ts, object, rxinfo
     FROM telemetry_data_all
     WHERE device_id = $1${filter}
-    ORDER BY ts DESC LIMIT $${idx} OFFSET $${idx + 1}
-  `, params);
-
-  const count = await pool.query(`
-    SELECT COUNT(*) as total FROM telemetry_data_all WHERE device_id = $1${filter}
-  `, countParams);
+    ORDER BY ts DESC LIMIT $${rangeParams.length + 1} OFFSET $${rangeParams.length + 2}
+  `, [...rangeParams, limit, offset]);
 
   return { telemetry: telemetry.rows, total: parseInt(count.rows[0].total) };
 };
