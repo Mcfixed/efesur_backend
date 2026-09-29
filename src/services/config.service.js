@@ -313,6 +313,15 @@ export const createDeviceService = async ({ dev_eui, name, company_id, id_device
 
     const deviceId = deviceResult.rows[0].id;
 
+    // Un lector solo puede pertenecer a un gateway: si se crea un gateway con un
+    // lector ya asignado a otro, se libera del anterior.
+    if (id_device_father != null && type_device === 'Gateway') {
+      await client.query(`
+        UPDATE devices SET id_device_father = NULL, updated_at = NOW() AT TIME ZONE 'UTC'
+        WHERE id_device_father = $1 AND id <> $2 AND type_device = 'Gateway'
+      `, [id_device_father, deviceId]);
+    }
+
     // Siempre crear registro específico según tipo, incluso sin specific_data
     if (specific_data) {
       await upsertSpecificData(client, deviceId, type_device, specific_data);
@@ -363,6 +372,16 @@ export const updateDeviceService = async (id, data) => {
     if (result.rowCount === 0) {
       await client.query('ROLLBACK');
       return result;
+    }
+
+    // Un lector solo puede pertenecer a un gateway: al asignarlo acá se libera de
+    // cualquier otro gateway que lo tuviera (evita que quede asignado a dos).
+    const deviceType = data.type_device || result.rows[0].type_device;
+    if (data.id_device_father != null && deviceType === 'Gateway') {
+      await client.query(`
+        UPDATE devices SET id_device_father = NULL, updated_at = NOW() AT TIME ZONE 'UTC'
+        WHERE id_device_father = $1 AND id <> $2 AND type_device = 'Gateway'
+      `, [data.id_device_father, id]);
     }
 
     // Update specific device data
