@@ -169,6 +169,9 @@ export const updateUserService = async (id, data) => {
   if (data.notify_whatsapp !== undefined) { fields.push(`notify_whatsapp = $${idx++}`); values.push(data.notify_whatsapp); }
   if (data.notify_email !== undefined) { fields.push(`notify_email = $${idx++}`); values.push(data.notify_email); }
   if (data.notify_email_address !== undefined) { fields.push(`notify_email_address = $${idx++}`); values.push(data.notify_email_address || null); }
+  // Recibe notificaciones (independiente del login). Faltaba: el checkbox "Activo para
+  // notificaciones" se guardaba en falso silencio (200 OK, pero la columna no se tocaba).
+  if (data.is_active_notification !== undefined) { fields.push(`is_active_notification = $${idx++}`); values.push(data.is_active_notification); }
 
   if (fields.length === 0) return pool.query('SELECT * FROM users WHERE id = $1', [id]);
 
