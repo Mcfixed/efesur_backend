@@ -43,6 +43,8 @@ process.exit = ((code) => {
 
 const app = express();
 
+app.set('trust proxy', 'loopback');
+
 // Security & Compression
 app.use(helmet());
 app.use(compression());
@@ -57,10 +59,10 @@ app.use(cors({
 // Logging
 app.use(morgan('dev'));
 
-// Rate limiting
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 1000,
+  max: 1000000,
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => req.path === '/api/health',
