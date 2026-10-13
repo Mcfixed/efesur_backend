@@ -1,11 +1,12 @@
 import { Router } from 'express';
-import { getSummary, getActiveSensors, getAlertsPerDay, getCalendar, getAlertsByDate, getDevices, getDeviceTelemetry, getDeviceAlerts, getGatewayPositions, getAlertTracking, getLatestTelemetry, getReport, getReportBattery, getReportConnectivity, getReportExecutive, getReportAlerts, getReportTemperature, getReportGps, getReportGateway, getReportComparative, getReportGatewayStats, getSystemServices } from '../controllers/monitor.controller.js';
+import { getSummary, getActiveSensors, getAlertsPerDay, getCalendar, getAlertsByDate, getDevices, getDeviceTelemetry, getDeviceAlerts, getGatewayPositions, getAlertTracking, getLatestTelemetry, getReport, getReportBattery, getReportConnectivity, getReportExecutive, getReportAlerts, getReportTemperature, getReportGps, getReportGateway, getReportComparative, getReportGatewayStats, getSystemServices, getDayReport } from '../controllers/monitor.controller.js';
 
 const router = Router();
 
 router.get('/summary', getSummary);
 router.get('/active-sensors', getActiveSensors);
 router.get('/alerts-per-day', getAlertsPerDay);
+router.get('/day-report', getDayReport);
 router.get('/calendar', getCalendar);
 router.get('/alerts-by-date', getAlertsByDate);
 router.get('/devices', getDevices);

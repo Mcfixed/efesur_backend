@@ -8,6 +8,7 @@ import {
   getMonitorReportTemperatureService, getMonitorReportGpsService,
   getMonitorReportGatewayService, getMonitorReportComparativeService,
   getMonitorReportGatewayStatsService,
+  getMonitorDayReportService,
 } from '../services/monitor.service.js';
 import { getSystemServicesService } from '../services/system.service.js';
 import { success } from '../utils/response.js';
@@ -31,6 +32,16 @@ export const getActiveSensors = async (req, res, next) => {
 export const getAlertsPerDay = async (req, res, next) => {
   try { const data = await getMonitorAlertsPerDayService(req.userCompanyIds); success(res, data); }
   catch (e) { next(e); }
+};
+
+// Reporte de un día concreto (YYYY-MM-DD, día de Chile) para el Excel del mapa de calor
+export const getDayReport = async (req, res, next) => {
+  try {
+    const dia = String(req.query.dia || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return next(Object.assign(new Error('Parámetro dia inválido (formato YYYY-MM-DD)'), { statusCode: 400 }));
+    const data = await getMonitorDayReportService(dia, req.userCompanyIds);
+    success(res, data);
+  } catch (e) { next(e); }
 };
 
 export const getCalendar = async (req, res, next) => {

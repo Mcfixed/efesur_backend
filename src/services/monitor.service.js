@@ -74,6 +74,85 @@ export const getMonitorActiveSensorsService = async (companyIds) => {
   return r.rows;
 };
 
+// ─── Reporte por día: una fila por sensor activo ──
+// Base del Excel que se descarga desde el mapa de calor. Para cada sensor Gps activo:
+//   · último registro DEL DÍA (batería, temperatura y hora de ese dato)
+//   · el mejor rx de ese registro (mayor SNR, desempate por mayor RSSI) + nombre del gateway
+// Si el sensor no reportó ese día, las columnas vuelven NULL y se pinta en gris.
+// `last_seen` global se incluye para distinguir "dejó de reportar" de "nunca reportó".
+export const getMonitorDayReportService = async (dia, companyIds) => {
+  const params = [dia];
+  let filter = '';
+  if (companyIds?.length) { params.push(companyIds); filter = ` AND d.company_id = ANY($2::int[])`; }
+
+  // Nombre estándar del sensor: "V1PK6/11-13" = Vía 1 · PK 6 · postes 11-13.
+  // El mismo patrón se usa para ordenar el reporte (y por tanto el Excel).
+  // Se toleran espacios y sufijos en los postes ("V1PK0/0C-2C", "V2PK26/35-27/01"),
+  // porque los nombres se escriben a mano.
+  const PK_RX = '^\\s*V\\s*(\\d+)\\s*PK\\s*(\\d+)\\s*/\\s*(\\d+)';
+
+  const r = await pool.query(`
+    SELECT d.id, d.name, d.dev_eui, d.last_seen AS last_seen_global,
+           last_t.ts AS ultimo_ts,
+           (last_t.object->>'voltage_mV')::float8   AS bat_mv,
+           (last_t.object->>'temperature_C')::float8 AS temp_c,
+           gws.lista AS gateways,
+           -- El primer elemento de la lista ya viene ordenado por mejor señal
+           gws.lista->0->>'eui'            AS gw_eui,
+           (gws.lista->0->>'snr')::float8  AS snr,
+           (gws.lista->0->>'rssi')::float8 AS rssi,
+           gws.lista->0->>'name'           AS gw_name
+    FROM devices d
+    LEFT JOIN LATERAL (
+      SELECT t.ts, t.object, t.rxinfo
+      FROM telemetry_data_all t
+      WHERE t.device_id = d.id
+        AND t.ts >= ${DAY_START_UTC('$1')} AND t.ts < ${DAY_START_UTC('($1::date + 1)')}
+      ORDER BY t.ts DESC LIMIT 1
+    ) last_t ON true
+    LEFT JOIN LATERAL (
+      -- Todos los gateways que recibieron el último dato del día (para el popup de cobertura).
+      -- Se ordenan por calidad de señal, así el primero es el "mejor gateway" del reporte.
+      SELECT jsonb_agg(
+               jsonb_build_object(
+                 'eui',  r->>'gatewayId',
+                 'snr',  (r->>'snr')::float8,
+                 'rssi', (r->>'rssi')::float8,
+                 'name', COALESCE(
+                   (SELECT gw.name FROM devices gw WHERE lower(gw.dev_eui) = lower(r->>'gatewayId') LIMIT 1),
+                   (SELECT gw.name FROM devices gw
+                     WHERE gw.type_device = 'Gateway'
+                       AND lower(right(gw.dev_eui, 6)) = lower(right(r->>'gatewayId', 6)) LIMIT 1)
+                 )
+               )
+               ORDER BY (r->>'snr')::float8 DESC NULLS LAST, (r->>'rssi')::float8 DESC NULLS LAST
+             ) AS lista
+      -- rxinfo llega como array normalmente, pero el ingest guarda un OBJETO cuando hay un
+      -- solo gateway: jsonb_array_elements fallaba con "cannot extract elements from an object".
+      FROM jsonb_array_elements(
+        CASE
+          WHEN jsonb_typeof(last_t.rxinfo) = 'array'  THEN last_t.rxinfo
+          WHEN jsonb_typeof(last_t.rxinfo) = 'object' THEN jsonb_build_array(last_t.rxinfo)
+          ELSE '[]'::jsonb
+        END
+      ) r
+      WHERE r ? 'gatewayId'
+    ) gws ON true
+    WHERE d.is_active = true AND d.type_device = 'Gps'${filter}
+    -- Orden por punto kilométrico: Vía, PK y poste. Los sensores con otro formato
+    -- (o con la vía mal escrita, p. ej. "V2P2/56-58") quedan al final, ordenados por nombre.
+    ORDER BY
+      (regexp_match(d.name, '${PK_RX}', 'i'))[1]::int NULLS LAST,
+      (regexp_match(d.name, '${PK_RX}', 'i'))[2]::int NULLS LAST,
+      (regexp_match(d.name, '${PK_RX}', 'i'))[3]::int NULLS LAST,
+      d.name
+  `, params);
+
+  const sensores = r.rows;
+  const conDatos = sensores.filter(s => s.ultimo_ts).length;
+  return { dia, total: sensores.length, conDatos, sinDatos: sensores.length - conDatos, sensores };
+};
+
 // ─── Alertas por día (30 días) ──
 export const getMonitorAlertsPerDayService = async (companyIds) => {
   let filter = ''; const p = [];
