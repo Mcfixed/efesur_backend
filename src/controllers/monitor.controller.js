@@ -2,6 +2,7 @@ import {
   getMonitorSummaryService, getMonitorActiveSensorsService, getMonitorAlertsPerDayService,
   getMonitorCalendarService, getMonitorAlertsByDateService, getMonitorDevicesService,
   getMonitorDeviceTelemetryService, getMonitorDeviceAlertsService, getMonitorGatewayPositionsService,
+  getMonitorGatewaysUptimeService,
   getMonitorAlertTrackingService, getMonitorLatestTelemetryService, getMonitorReportService,
   getMonitorReportBatteryService, getMonitorReportConnectivityService,
   getMonitorReportExecutiveService, getMonitorReportAlertsService,
@@ -9,6 +10,7 @@ import {
   getMonitorReportGatewayService, getMonitorReportComparativeService,
   getMonitorReportGatewayStatsService,
   getMonitorDayReportService,
+  getMonitorSatDataService,
 } from '../services/monitor.service.js';
 import { getSystemServicesService } from '../services/system.service.js';
 import { success } from '../utils/response.js';
@@ -32,6 +34,15 @@ export const getActiveSensors = async (req, res, next) => {
 export const getAlertsPerDay = async (req, res, next) => {
   try { const data = await getMonitorAlertsPerDayService(req.userCompanyIds); success(res, data); }
   catch (e) { next(e); }
+};
+
+// Datos del anexo SAT (verificación de funcionamiento) para los últimos N días
+export const getSatData = async (req, res, next) => {
+  try {
+    const dias = parseInt(req.query.dias) || 5;
+    const data = await getMonitorSatDataService(dias, req.userCompanyIds);
+    success(res, data);
+  } catch (e) { next(e); }
 };
 
 // Reporte de un día concreto (YYYY-MM-DD, día de Chile) para el Excel del mapa de calor
@@ -89,6 +100,16 @@ export const getDeviceAlerts = async (req, res, next) => {
 
 export const getGatewayPositions = async (req, res, next) => {
   try { const data = await getMonitorGatewayPositionsService(req.userCompanyIds); success(res, data); }
+  catch (e) { next(e); }
+};
+
+// Caídas del período por gateway (para el mini gráfico de uptime de la tabla)
+export const getGatewayUptime = async (req, res, next) => {
+  try {
+    const dias = parseInt(req.query.dias) || 7;
+    const data = await getMonitorGatewaysUptimeService(dias, req.userCompanyIds);
+    success(res, data);
+  }
   catch (e) { next(e); }
 };
 export const getAlertTracking = async (req, res, next) => {

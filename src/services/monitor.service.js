@@ -153,6 +153,162 @@ export const getMonitorDayReportService = async (dia, companyIds) => {
   return { dia, total: sensores.length, conDatos, sinDatos: sensores.length - conDatos, sensores };
 };
 
+// ─── Anexo SAT: datos de verificación de funcionamiento ──
+// Entrega los datos crudos de la ventana pedida (por defecto los últimos 5 días) para el
+// Excel "Documento verificación funcionamiento": una fila por sensor activo con su modo,
+// último dato, señal del mejor gateway, agregados de la ventana y eventos de movimiento,
+// más el resumen por gateway. La clasificación (CONFORME / NO CONFORME / INCONCLUSO) y los
+// umbrales se aplican en el front, en utils/satExcel.ts.
+export const getMonitorSatDataService = async (dias, companyIds) => {
+  const n = Math.min(Math.max(parseInt(dias) || 5, 1), 30);
+
+  const rango = await pool.query(`
+    SELECT ((now() AT TIME ZONE '${TZ}')::date - ($1::int - 1))::text AS desde,
+            (now() AT TIME ZONE '${TZ}')::date::text                   AS hasta
+  `, [n]);
+  const { desde, hasta } = rango.rows[0];
+
+  const params = [desde, hasta];
+  let filter = '';
+  if (companyIds?.length) { params.push(companyIds); filter = ` AND d.company_id = ANY($${params.length}::int[])`; }
+
+  const PK_RX = '^\\s*V\\s*(\\d+)\\s*PK\\s*(\\d+)\\s*/\\s*(\\d+)';
+  const ini = DAY_START_UTC('$1');
+  const fin = DAY_START_UTC('($2::date + 1)');
+
+  // 1) Sensores activos: agregados de la ventana, último registro y su mejor gateway
+  const sensores = await pool.query(`
+    SELECT d.id, d.name, d.dev_eui, d.last_seen, d.latitude_current, d.longitude_current,
+           g.operating_mode,
+           agg.registros, agg.dias, agg.primer_ts, hue.huecos AS huecos_interiores,
+           last_t.ts AS ultimo_ts,
+           CASE WHEN prev_t.ts IS NOT NULL THEN agg.primer_ts - ${ini} END                      AS hueco_inicial,
+           CASE WHEN last_t.ts IS NOT NULL THEN LEAST(${fin}, (now() AT TIME ZONE 'UTC')) - last_t.ts END AS hueco_final,
+           (last_t.object->>'voltage_mV')::float8    AS bat_mv,
+           (last_t.object->>'temperature_C')::float8 AS temp_c,
+           (last_t.object->>'satellites')::int       AS sats,
+           gws.lista AS gateways,
+           (gws.lista->0->>'eui')  AS gw_eui,
+           (gws.lista->0->>'name') AS gw_name,
+           (gws.lista->0->>'snr')::float8  AS snr,
+           (gws.lista->0->>'rssi')::float8 AS rssi,
+           ev.eventos, ev.ultimo_evento
+    FROM devices d
+    LEFT JOIN gps_device g ON g.id = d.id
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS registros,
+             COUNT(DISTINCT ((t.ts AT TIME ZONE 'UTC') AT TIME ZONE '${TZ}')::date)::int AS dias,
+             MIN(t.ts) AS primer_ts
+      FROM telemetry_data_all t
+      WHERE t.device_id = d.id AND t.ts >= ${ini} AND t.ts < ${fin}
+    ) agg ON true
+    LEFT JOIN LATERAL (
+      -- Interrupciones internas: silencios de más de 4 h 15 min entre dos datos de la ventana.
+      -- El keepalive está configurado cada 4 h; el margen de 15 min evita marcar como falla un
+      -- keepalive que llegue algo atrasado.
+      SELECT COUNT(*)::int AS huecos FROM (
+        SELECT t.ts - LAG(t.ts) OVER (ORDER BY t.ts) AS gap
+        FROM telemetry_data_all t
+        WHERE t.device_id = d.id AND t.ts >= ${ini} AND t.ts < ${fin}
+      ) x WHERE x.gap > INTERVAL '4 hours 15 minutes'
+    ) hue ON true
+    LEFT JOIN LATERAL (
+      -- Último dato anterior a la ventana: permite medir el silencio del inicio del período.
+      -- Solo se considera si el sensor ya venía reportando (no penaliza equipos recién instalados).
+      SELECT t.ts FROM telemetry_data_all t
+      WHERE t.device_id = d.id AND t.ts < ${ini}
+      ORDER BY t.ts DESC LIMIT 1
+    ) prev_t ON true
+    LEFT JOIN LATERAL (
+      SELECT t.ts, t.object, t.rxinfo
+      FROM telemetry_data_all t
+      WHERE t.device_id = d.id AND t.ts >= ${ini} AND t.ts < ${fin}
+      ORDER BY t.ts DESC LIMIT 1
+    ) last_t ON true
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(
+               jsonb_build_object(
+                 'eui',  r->>'gatewayId',
+                 'snr',  (r->>'snr')::float8,
+                 'rssi', (r->>'rssi')::float8,
+                 'name', COALESCE(
+                   (SELECT gw.name FROM devices gw WHERE lower(gw.dev_eui) = lower(r->>'gatewayId') LIMIT 1),
+                   (SELECT gw.name FROM devices gw
+                     WHERE gw.type_device = 'Gateway'
+                       AND lower(right(gw.dev_eui, 6)) = lower(right(r->>'gatewayId', 6)) LIMIT 1)
+                 )
+               )
+               ORDER BY (r->>'snr')::float8 DESC NULLS LAST, (r->>'rssi')::float8 DESC NULLS LAST
+             ) AS lista
+      FROM jsonb_array_elements(
+        CASE
+          WHEN jsonb_typeof(last_t.rxinfo) = 'array'  THEN last_t.rxinfo
+          WHEN jsonb_typeof(last_t.rxinfo) = 'object' THEN jsonb_build_array(last_t.rxinfo)
+          ELSE '[]'::jsonb
+        END
+      ) r
+      WHERE r ? 'gatewayId'
+    ) gws ON true
+    LEFT JOIN LATERAL (
+      -- Eventos de movimiento / caída libre registrados en la ventana (prueba funcional)
+      SELECT COUNT(*)::int AS eventos, MAX(a.created_at) AS ultimo_evento
+      FROM alerts a
+      WHERE a.device_id = d.id AND a.created_at >= ${ini} AND a.created_at < ${fin}
+        AND a.type IN ('movimientos_anomalos', 'critica')
+    ) ev ON true
+    WHERE d.is_active = true AND d.type_device = 'Gps'${filter}
+    ORDER BY
+      (regexp_match(d.name, '${PK_RX}', 'i'))[1]::int NULLS LAST,
+      (regexp_match(d.name, '${PK_RX}', 'i'))[2]::int NULLS LAST,
+      (regexp_match(d.name, '${PK_RX}', 'i'))[3]::int NULLS LAST,
+      d.name
+  `, params);
+
+  // Interrupciones: cada silencio de más de 4 h 15 min sin datos cuenta como una, incluyendo
+  // el silencio al inicio del período y el que sigue en curso (desde el último dato hasta ahora).
+  // El keepalive del sensor es de 4 h y puede enviar datos de movimiento en cualquier momento.
+  const KEEPALIVE_SEG = 4 * 3600 + 15 * 60;
+  const aSegundos = (iv) => (iv == null ? null
+    : (iv.days ?? 0) * 86400 + (iv.hours ?? 0) * 3600 + (iv.minutes ?? 0) * 60 + (iv.seconds ?? 0));
+  for (const s of sensores.rows) {
+    const inicial = aSegundos(s.hueco_inicial);
+    const enCurso = aSegundos(s.hueco_final);
+    s.huecos = (s.huecos_interiores ?? 0)
+      + (inicial != null && inicial > KEEPALIVE_SEG ? 1 : 0)
+      + (enCurso != null && enCurso > KEEPALIVE_SEG ? 1 : 0);
+    s.hueco_en_curso = enCurso != null && enCurso > KEEPALIVE_SEG;
+    delete s.huecos_interiores;
+    delete s.hueco_inicial;
+    delete s.hueco_final;
+  }
+
+  // 2) Gateways: uplinks retransmitidos y sensores servidos en la ventana
+  const gateways = await pool.query(`
+    SELECT d.id, d.name, d.dev_eui, d.is_active, d.last_seen, gw.firmware_version,
+           up.uplinks, up.sensores
+    FROM devices d
+    LEFT JOIN gateway_device gw ON gw.id = d.id
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS uplinks, COUNT(DISTINCT t.device_id)::int AS sensores
+      FROM telemetry_data_all t
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE
+          WHEN jsonb_typeof(t.rxinfo) = 'array'  THEN t.rxinfo
+          WHEN jsonb_typeof(t.rxinfo) = 'object' THEN jsonb_build_array(t.rxinfo)
+          ELSE '[]'::jsonb
+        END
+      ) r
+      WHERE t.ts >= ${ini} AND t.ts < ${fin} AND r ? 'gatewayId'
+        AND (lower(r->>'gatewayId') = lower(d.dev_eui)
+          OR lower(right(r->>'gatewayId', 6)) = lower(right(d.dev_eui, 6)))
+    ) up ON true
+    WHERE d.type_device = 'Gateway'
+    ORDER BY d.name
+  `, [desde, hasta]);
+
+  return { desde, hasta, dias: n, sensores: sensores.rows, gateways: gateways.rows };
+};
+
 // ─── Alertas por día (30 días) ──
 export const getMonitorAlertsPerDayService = async (companyIds) => {
   let filter = ''; const p = [];
@@ -260,7 +416,14 @@ export const getMonitorDevicesService = async (companyIds) => {
       ) as operating_mode,
       (SELECT t.object->>'voltage_mV'::text
        FROM telemetry_data_all t WHERE t.device_id = d.id AND t.object IS NOT NULL
-       ORDER BY t.ts DESC LIMIT 1) as last_value
+       ORDER BY t.ts DESC LIMIT 1) as last_value,
+      -- Batería de la estación (banco de 12 V que reporta el MPPT). Los gateways no tienen
+      -- telemetría propia: para ellos se lee la del lector asignado (id_device_father).
+      (SELECT (t.object->'Mppt'->>'batteryVoltage_V')::float8
+       FROM telemetry_data_all t
+       WHERE t.device_id = CASE WHEN d.type_device = 'Gateway' THEN COALESCE(d.id_device_father, d.id) ELSE d.id END
+         AND t.object->'Mppt'->>'batteryVoltage_V' IS NOT NULL
+       ORDER BY t.ts DESC LIMIT 1) as battery_v
     FROM devices d
     LEFT JOIN gps_device gps ON d.id = gps.id
     WHERE 1=1${filter} ORDER BY d.name ASC
@@ -367,6 +530,64 @@ export const getMonitorGatewayPositionsService = async (companyIds) => {
       AND d.latitude_current IS NOT NULL AND d.longitude_current IS NOT NULL${companyFilter}
   `, params);
   return r.rows;
+};
+
+// ─── Uptime de gateways (columna "Uptime 7 días" de la tabla del panel técnico) ──
+// Los gateways no generan telemetría propia: su disponibilidad se deriva de las alertas
+// 'desconexionGW', donde created_at → resolved_at es el intervalo caído (abierta = hasta ahora).
+// Cada intervalo se RECORTA a la ventana: una alerta abierta antes del rango debe seguir contando
+// desde el inicio del rango; si no, un gateway caído hace un mes aparecería 100% operativo.
+// Se entregan los intervalos crudos (recortados) para que el front calcule el % y el gráfico con
+// la misma función que usa el panel del gateway.
+export const getMonitorGatewaysUptimeService = async (dias, companyIds) => {
+  const n = Math.min(Math.max(parseInt(dias) || 7, 1), 90);
+
+  const params = [n];
+  let filter = '';
+  if (companyIds?.length) { params.push(companyIds); filter = ` AND d.company_id = ANY($${params.length}::int[])`; }
+
+  const r = await pool.query(`
+    WITH p AS (
+      SELECT (now() AT TIME ZONE 'UTC')                             AS hasta,
+             (now() AT TIME ZONE 'UTC') - ($1::int * INTERVAL '1 day') AS desde
+    )
+    SELECT d.id, d.name, d.dev_eui, d.is_active, d.last_seen, p.desde, p.hasta,
+           a.id AS alerta_id,
+           GREATEST(a.created_at, p.desde)                      AS caida_desde,
+           LEAST(COALESCE(a.resolved_at, p.hasta), p.hasta)      AS caida_hasta
+    FROM devices d
+    CROSS JOIN p
+    LEFT JOIN alerts a ON a.device_id = d.id
+      AND a.type = 'desconexionGW'
+      AND GREATEST(a.created_at, p.desde) < LEAST(COALESCE(a.resolved_at, p.hasta), p.hasta)
+    WHERE d.type_device = 'Gateway'${filter}
+    ORDER BY d.name, a.created_at
+  `, params);
+
+  const porGateway = new Map();
+  for (const row of r.rows) {
+    if (!porGateway.has(row.id)) {
+      porGateway.set(row.id, {
+        id: row.id,
+        name: row.name,
+        dev_eui: row.dev_eui,
+        is_active: row.is_active,
+        last_seen: row.last_seen,
+        intervalos: [],
+      });
+    }
+    if (row.alerta_id != null) {
+      porGateway.get(row.id).intervalos.push({ start: row.caida_desde, end: row.caida_hasta });
+    }
+  }
+
+  const primera = r.rows[0];
+  return {
+    dias: n,
+    desde: primera?.desde ?? null,
+    hasta: primera?.hasta ?? null,
+    gateways: [...porGateway.values()],
+  };
 };
 
 // ─── Reporte Salud de Baterías ──
