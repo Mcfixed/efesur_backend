@@ -11,6 +11,7 @@ import {
   getMonitorReportGatewayStatsService,
   getMonitorDayReportService,
   getMonitorSatDataService,
+  getMonitorDeviceTrackService,
 } from '../services/monitor.service.js';
 import { getSystemServicesService } from '../services/system.service.js';
 import { success } from '../utils/response.js';
@@ -103,6 +104,19 @@ export const getGatewayPositions = async (req, res, next) => {
   catch (e) { next(e); }
 };
 
+// Recorrido de un tracker LillieGo: puntos con posición válida + gateways que recibieron cada uno
+export const getDeviceTrack = async (req, res, next) => {
+  try {
+    const deviceId = parseInt(req.params.id);
+    await assertDeviceAccess(req.userCompanyIds, deviceId);
+    const data = await getMonitorDeviceTrackService(deviceId, {
+      from: req.query.from,
+      to: req.query.to,
+    });
+    success(res, data);
+  }
+  catch (e) { next(e); }
+};
 // Caídas del período por gateway (para el mini gráfico de uptime de la tabla)
 export const getGatewayUptime = async (req, res, next) => {
   try {

@@ -2,12 +2,13 @@
  * Constantes de la aplicación
  */
 
-// Tipos de dispositivos permitidos
+// Tipos de dispositivos permitidos. LillieGo no tiene tabla subtipo (todo lo que manda es telemetría).
 export const DEVICE_TYPES = {
   GPS: 'Gps',
   GATEWAY: 'Gateway',
   SUB_ESTACION: 'SubEstacion',
   LECTOR: 'Lector',
+  LILLIE_GO: 'LillieGo',
 };
 
 export const DEVICE_TYPES_ARRAY = Object.values(DEVICE_TYPES);

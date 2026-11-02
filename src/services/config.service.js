@@ -170,7 +170,6 @@ export const updateUserService = async (id, data) => {
   if (data.notify_email !== undefined) { fields.push(`notify_email = $${idx++}`); values.push(data.notify_email); }
   if (data.notify_email_address !== undefined) { fields.push(`notify_email_address = $${idx++}`); values.push(data.notify_email_address || null); }
   // Recibe notificaciones (independiente del login). Faltaba: el checkbox "Activo para
-  // notificaciones" se guardaba en falso silencio (200 OK, pero la columna no se tocaba).
   if (data.is_active_notification !== undefined) { fields.push(`is_active_notification = $${idx++}`); values.push(data.is_active_notification); }
 
   if (fields.length === 0) return pool.query('SELECT * FROM users WHERE id = $1', [id]);
@@ -317,7 +316,6 @@ export const createDeviceService = async ({ dev_eui, name, company_id, id_device
     const deviceId = deviceResult.rows[0].id;
 
     // Un lector solo puede pertenecer a un gateway: si se crea un gateway con un
-    // lector ya asignado a otro, se libera del anterior.
     if (id_device_father != null && type_device === 'Gateway') {
       await client.query(`
         UPDATE devices SET id_device_father = NULL, updated_at = NOW() AT TIME ZONE 'UTC'
@@ -378,7 +376,6 @@ export const updateDeviceService = async (id, data) => {
     }
 
     // Un lector solo puede pertenecer a un gateway: al asignarlo acá se libera de
-    // cualquier otro gateway que lo tuviera (evita que quede asignado a dos).
     const deviceType = data.type_device || result.rows[0].type_device;
     if (data.id_device_father != null && deviceType === 'Gateway') {
       await client.query(`
@@ -405,7 +402,7 @@ export const updateDeviceService = async (id, data) => {
 
 export const deleteDeviceService = (id) => pool.query('DELETE FROM devices WHERE id = $1', [id]);
 
-// Helper para insertar/actualizar data específica de dispositivo
+// Data específica por tipo. Los tipos sin tabla subtipo (LillieGo) caen en el default.
 async function upsertSpecificData(client, deviceId, typeDevice, data) {
   switch (typeDevice) {
     case 'Gps':
@@ -435,6 +432,8 @@ async function upsertSpecificData(client, deviceId, typeDevice, data) {
         VALUES ($1, $2, $3)
         ON CONFLICT (id) DO UPDATE SET last_date_reader = $2, battery_reader = $3
       `, [deviceId, data.last_date_reader, data.battery_reader || 100]);
+      break;
+    default:
       break;
   }
 }

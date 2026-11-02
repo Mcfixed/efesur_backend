@@ -1,8 +1,6 @@
 import pool from '../config/database.js';
 
 // ─── Zona horaria ────────────────────────────────────────────────────────────
-// Columnas de fecha: `timestamp without time zone` con UTC dentro; las reglas de negocio
-// (día, mes, "hoy") se evalúan en hora de Chile, sin depender del TimeZone de la sesión.
 const TZ = 'America/Santiago';
 
 const NOW_CL = `(now() AT TIME ZONE '${TZ}')`;   // ahora, en hora de Chile
@@ -75,20 +73,12 @@ export const getMonitorActiveSensorsService = async (companyIds) => {
 };
 
 // ─── Reporte por día: una fila por sensor activo ──
-// Base del Excel que se descarga desde el mapa de calor. Para cada sensor Gps activo:
-//   · último registro DEL DÍA (batería, temperatura y hora de ese dato)
-//   · el mejor rx de ese registro (mayor SNR, desempate por mayor RSSI) + nombre del gateway
-// Si el sensor no reportó ese día, las columnas vuelven NULL y se pinta en gris.
-// `last_seen` global se incluye para distinguir "dejó de reportar" de "nunca reportó".
 export const getMonitorDayReportService = async (dia, companyIds) => {
   const params = [dia];
   let filter = '';
   if (companyIds?.length) { params.push(companyIds); filter = ` AND d.company_id = ANY($2::int[])`; }
 
   // Nombre estándar del sensor: "V1PK6/11-13" = Vía 1 · PK 6 · postes 11-13.
-  // El mismo patrón se usa para ordenar el reporte (y por tanto el Excel).
-  // Se toleran espacios y sufijos en los postes ("V1PK0/0C-2C", "V2PK26/35-27/01"),
-  // porque los nombres se escriben a mano.
   const PK_RX = '^\\s*V\\s*(\\d+)\\s*PK\\s*(\\d+)\\s*/\\s*(\\d+)';
 
   const r = await pool.query(`
@@ -154,11 +144,6 @@ export const getMonitorDayReportService = async (dia, companyIds) => {
 };
 
 // ─── Anexo SAT: datos de verificación de funcionamiento ──
-// Entrega los datos crudos de la ventana pedida (por defecto los últimos 5 días) para el
-// Excel "Documento verificación funcionamiento": una fila por sensor activo con su modo,
-// último dato, señal del mejor gateway, agregados de la ventana y eventos de movimiento,
-// más el resumen por gateway. La clasificación (CONFORME / NO CONFORME / INCONCLUSO) y los
-// umbrales se aplican en el front, en utils/satExcel.ts.
 export const getMonitorSatDataService = async (dias, companyIds) => {
   const n = Math.min(Math.max(parseInt(dias) || 5, 1), 30);
 
@@ -265,8 +250,6 @@ export const getMonitorSatDataService = async (dias, companyIds) => {
   `, params);
 
   // Interrupciones: cada silencio de más de 4 h 15 min sin datos cuenta como una, incluyendo
-  // el silencio al inicio del período y el que sigue en curso (desde el último dato hasta ahora).
-  // El keepalive del sensor es de 4 h y puede enviar datos de movimiento en cualquier momento.
   const KEEPALIVE_SEG = 4 * 3600 + 15 * 60;
   const aSegundos = (iv) => (iv == null ? null
     : (iv.days ?? 0) * 86400 + (iv.hours ?? 0) * 3600 + (iv.minutes ?? 0) * 60 + (iv.seconds ?? 0));
@@ -352,7 +335,7 @@ export const getMonitorAlertsByDateService = async (companyIds, date) => {
   let filter = ''; const p = [date];
   if (companyIds?.length) { p.push(companyIds); filter = ` AND d.company_id = ANY($${p.length}::int[])`; }
   const r = await pool.query(`
-    SELECT a.id, a.type, a.status, a.metadata, a.created_at, d.name as device_name, d.type_device
+    SELECT a.id, a.type, a.status, a.metadata, a.created_at, a.device_id, d.name as device_name, d.type_device
     FROM alerts a JOIN devices d ON a.device_id = d.id
     WHERE ${IS_DAY_CL('a.created_at', '$1')}${filter} ORDER BY a.created_at DESC
   `, p);
@@ -376,6 +359,116 @@ export const getMonitorAlertTrackingService = async (alertId, companyIds) => {
     ORDER BY ta.timestamp ASC
   `, params);
   return r.rows;
+};
+
+// ─── Recorrido de un tracker (puntos + gateways por punto) ──
+export const getMonitorDeviceTrackService = async (deviceId, { from, to } = {}) => {
+  const hasta = to || new Date().toISOString();
+  const desde = from || new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+
+  const [dev, filas, gws] = await Promise.all([
+    pool.query(`SELECT id, name, dev_eui, type_device FROM devices WHERE id = $1`, [deviceId]),
+    pool.query(`
+      WITH p AS (
+        SELECT (($1::timestamptz) AT TIME ZONE 'UTC') AS desde,
+               (($2::timestamptz) AT TIME ZONE 'UTC') AS hasta
+      )
+      SELECT t.ts,
+             (t.object->>'latitude')::float8   AS lat,
+             (t.object->>'longitude')::float8  AS lng,
+             (t.object->>'altitude_m')::float8 AS alt,
+             (t.object->>'battery_mv')::float8 AS bat_mv,
+             (t.object->>'battery_v')::float8  AS bat_v,
+             (t.object->>'gps_valid')::boolean AS gps_valid,
+             CASE WHEN jsonb_typeof(t.rxinfo) = 'array'  THEN t.rxinfo
+                  WHEN jsonb_typeof(t.rxinfo) = 'object' THEN jsonb_build_array(t.rxinfo)
+                  ELSE '[]'::jsonb END AS rx
+      FROM telemetry_data_all t
+      CROSS JOIN p
+      WHERE t.device_id = $3 AND t.ts >= p.desde AND t.ts <= p.hasta
+      ORDER BY t.ts ASC
+    `, [desde, hasta, deviceId]),
+    pool.query(`SELECT dev_eui, name, latitude_current, longitude_current FROM devices WHERE type_device = 'Gateway'`),
+  ]);
+
+  // Info de gateway (por EUI completo o por los últimos 6 caracteres, como el resto del panel).
+  const porEui = new Map();
+  const porCorto = new Map();
+  for (const g of gws.rows) {
+    if (!g.dev_eui) continue;
+    const info = {
+      name: g.name,
+      lat: g.latitude_current != null ? Number(g.latitude_current) : null,
+      lng: g.longitude_current != null ? Number(g.longitude_current) : null,
+    };
+    porEui.set(String(g.dev_eui).toLowerCase(), info);
+    porCorto.set(String(g.dev_eui).toLowerCase().slice(-6), info);
+  }
+  const gwDe = (eui) => {
+    const vacio = { name: null, lat: null, lng: null };
+    if (!eui) return vacio;
+    const e = String(eui).toLowerCase();
+    return porEui.get(e) || porCorto.get(e.slice(-6)) || vacio;
+  };
+
+  const puntos = [];
+  for (const row of filas.rows) {
+    const lat = row.lat, lng = row.lng;
+    // gps_valid solo lo manda LillieGo; los Gps mandan lat/lng sin la bandera.
+    const ok = row.gps_valid !== false
+      && Number.isFinite(lat) && Number.isFinite(lng)
+      && !(lat === 0 && lng === 0);
+    if (!ok) continue;
+
+    const rx = Array.isArray(row.rx) ? row.rx : [];
+    const validas = rx.filter(x => !x.crcStatus || x.crcStatus === 'CRC_OK');
+    const gateways = validas.map(x => {
+      const info = gwDe(x.gatewayId);
+      return {
+        eui: x.gatewayId || null,
+        name: info.name,
+        lat: info.lat,
+        lng: info.lng,
+        rssi: x.rssi ?? null,
+        snr: x.snr ?? null,
+      };
+    });
+    const conSenal = gateways.filter(g => g.snr != null).sort((a, b) => b.snr - a.snr);
+
+    puntos.push({
+      ts: row.ts,
+      lat, lng,
+      alt: row.alt ?? null,
+      bateria_mv: row.bat_mv ?? (row.bat_v != null ? row.bat_v * 1000 : null),
+      n_gw: gateways.length,
+      gateways,
+      rssi: conSenal[0]?.rssi ?? null,
+      snr: conSenal[0]?.snr ?? null,
+    });
+  }
+
+  // Distancia recorrida (haversine) para mostrarla en el resumen
+  let distanciaKm = 0;
+  for (let i = 1; i < puntos.length; i++) {
+    const a = puntos[i - 1], b = puntos[i];
+    const R = 6371, rad = (d) => (d * Math.PI) / 180;
+    const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    distanciaKm += 2 * R * Math.asin(Math.sqrt(h));
+  }
+
+  return {
+    device: dev.rows[0] || null,
+    desde, hasta,
+    total_registros: filas.rows.length,
+    puntos,
+    resumen: {
+      puntos: puntos.length,
+      sin_fix: filas.rows.length - puntos.length,
+      gw_promedio: puntos.length ? Number((puntos.reduce((a, p) => a + p.n_gw, 0) / puntos.length).toFixed(1)) : 0,
+      distancia_km: Number(distanciaKm.toFixed(3)),
+    },
+  };
 };
 
 // ─── Últimos datos entrantes ──
@@ -419,10 +512,12 @@ export const getMonitorDevicesService = async (companyIds) => {
        ORDER BY t.ts DESC LIMIT 1) as last_value,
       -- Batería de la estación (banco de 12 V que reporta el MPPT). Los gateways no tienen
       -- telemetría propia: para ellos se lee la del lector asignado (id_device_father).
+      -- Solo los últimos 7 días: una lectura vieja no es la batería actual.
       (SELECT (t.object->'Mppt'->>'batteryVoltage_V')::float8
        FROM telemetry_data_all t
        WHERE t.device_id = CASE WHEN d.type_device = 'Gateway' THEN COALESCE(d.id_device_father, d.id) ELSE d.id END
          AND t.object->'Mppt'->>'batteryVoltage_V' IS NOT NULL
+         AND t.ts >= (now() AT TIME ZONE 'UTC') - INTERVAL '7 day'
        ORDER BY t.ts DESC LIMIT 1) as battery_v
     FROM devices d
     LEFT JOIN gps_device gps ON d.id = gps.id
@@ -443,7 +538,6 @@ export const getMonitorDeviceTelemetryService = async (deviceId, { from, to, lim
   `, rangeParams);
 
   // Modo gráfico: reparte ~`sample` filas sobre TODO el rango (antes se traían solo
-  // las más nuevas, así que el gráfico nunca cubría rangos largos).
   if (sample > 0) {
     const telemetry = await pool.query(`
       WITH rango AS (
@@ -533,12 +627,6 @@ export const getMonitorGatewayPositionsService = async (companyIds) => {
 };
 
 // ─── Uptime de gateways (columna "Uptime 7 días" de la tabla del panel técnico) ──
-// Los gateways no generan telemetría propia: su disponibilidad se deriva de las alertas
-// 'desconexionGW', donde created_at → resolved_at es el intervalo caído (abierta = hasta ahora).
-// Cada intervalo se RECORTA a la ventana: una alerta abierta antes del rango debe seguir contando
-// desde el inicio del rango; si no, un gateway caído hace un mes aparecería 100% operativo.
-// Se entregan los intervalos crudos (recortados) para que el front calcule el % y el gráfico con
-// la misma función que usa el panel del gateway.
 export const getMonitorGatewaysUptimeService = async (dias, companyIds) => {
   const n = Math.min(Math.max(parseInt(dias) || 7, 1), 90);
 
@@ -716,7 +804,6 @@ export const getMonitorReportAlertsService = async (deviceIds, from, to) => {
 };
 
 // ─── Stats reales de gateways: sensores únicos, registros, redundancia ──
-// Para cada gateway: sensores que le reportaron en el período (gatewayId en el rxinfo).
 export const getMonitorReportGatewayStatsService = async (deviceIds, from, to) => {
   const gateways = await pool.query(`
     SELECT d.id, d.dev_eui, d.name

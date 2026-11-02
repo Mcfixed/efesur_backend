@@ -10,7 +10,7 @@ import config from './config/index.js';
 import { auth } from './config/auth.js';
 import { requireAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler, jsonErrorHandler } from './middleware/errorHandler.js';
-import pool from './config/database.js';
+import pool, { esErrorDeConexion, podarClientesMuertos } from './config/database.js';
 import dashboardRouter from './routes/dashboard.routes.js';
 import configRouter from './routes/config.routes.js';
 import chirpstackRouter from './routes/chirpstack.routes.js';
@@ -25,10 +25,46 @@ function logCrash(tag, err) {
   console.error(`❌ ${tag}:`, detail);
   try { appendFileSync('logs/crash.log', `[${new Date().toISOString()}] ${tag}: ${detail}\n`); } catch { /* ignore */ }
 }
-process.on('unhandledRejection', (reason) => { logCrash('unhandledRejection', reason); });
-process.on('uncaughtException', (err) => { logCrash('uncaughtException', err); });
-// Monitor: se dispara antes que uncaughtException (diagnóstico extra)
-process.on('uncaughtExceptionMonitor', (err, origin) => { logCrash(`uncaughtExceptionMonitor (${origin})`, err); });
+
+// Los errores de conexión a la base llegan en ráfaga: se agrupan en un episodio para no
+// llenar crash.log con la misma traza.
+const EPISODIO_BD_MS = 60000;
+let episodioBd = { desde: 0, veces: 0, timer: null };
+
+function cerrarEpisodioBd() {
+  if (episodioBd.veces > 0) {
+    const segundos = Math.max(1, Math.round((Date.now() - episodioBd.desde) / 1000));
+    const resumen = `[bd] episodio cerrado: ${episodioBd.veces} error(es) de conexión en ${segundos} s`;
+    console.error(`ℹ️  ${resumen}`);
+    try { appendFileSync('logs/crash.log', `[${new Date().toISOString()}] ${resumen}\n`); } catch { /* ignore */ }
+  }
+  episodioBd = { desde: 0, veces: 0, timer: null };
+}
+
+function registrarErrorBd(tag, err) {
+  if (Date.now() - episodioBd.desde > EPISODIO_BD_MS) {
+    cerrarEpisodioBd();
+    episodioBd = { desde: Date.now(), veces: 0, timer: null };
+    logCrash(tag, err); // primer error del episodio, con stack
+  }
+  episodioBd.veces += 1;
+
+  const podados = podarClientesMuertos();
+  if (podados > 0) console.error(`🧹 ${podados} conexión(es) muerta(s) descartada(s) del pool`);
+
+  if (episodioBd.timer) clearTimeout(episodioBd.timer);
+  episodioBd.timer = setTimeout(cerrarEpisodioBd, EPISODIO_BD_MS);
+  episodioBd.timer.unref?.();
+}
+process.on('unhandledRejection', (reason) => {
+  if (esErrorDeConexion(reason)) return registrarErrorBd('rechazo sin manejar (conexión a la base)', reason);
+  logCrash('unhandledRejection', reason);
+});
+process.on('uncaughtException', (err) => {
+  // Un corte de red contra Postgres no justifica tumbar el proceso
+  if (esErrorDeConexion(err)) return registrarErrorBd('conexión a la base interrumpida', err);
+  logCrash('uncaughtException', err);
+});
 // Registrar cualquier salida del proceso (para diagnosticar reinicios)
 process.on('exit', (code) => {
   try { appendFileSync('logs/crash.log', `[${new Date().toISOString()}] process exit code=${code}\n`); } catch { /* ignore */ }
