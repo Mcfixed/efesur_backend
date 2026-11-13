@@ -380,6 +380,13 @@ export const getMonitorDeviceTrackService = async (deviceId, { from, to } = {}) 
              (t.object->>'battery_mv')::float8 AS bat_mv,
              (t.object->>'battery_v')::float8  AS bat_v,
              (t.object->>'gps_valid')::boolean AS gps_valid,
+             (t.object->>'satellites')::int        AS sats,
+             (t.object->>'temperature_C')::float8  AS temp_c,
+             (t.object->>'voltage_mV')::float8     AS vbat_mv,
+             t.object->>'packetType'              AS packet_type,
+             COALESCE(t.object->>'operatingMode', t.object->'systemStatus'->>'operatingMode') AS modo,
+             COALESCE((t.object->'systemStatus'->>'motionFlag')::boolean, false)   AS motion,
+             COALESCE((t.object->'systemStatus'->>'freeFallFlag')::boolean, false) AS freefall,
              CASE WHEN jsonb_typeof(t.rxinfo) = 'array'  THEN t.rxinfo
                   WHEN jsonb_typeof(t.rxinfo) = 'object' THEN jsonb_build_array(t.rxinfo)
                   ELSE '[]'::jsonb END AS rx
@@ -411,14 +418,21 @@ export const getMonitorDeviceTrackService = async (deviceId, { from, to } = {}) 
     return porEui.get(e) || porCorto.get(e.slice(-6)) || vacio;
   };
 
+  // Paquete GPS sin coordenada usable (llega en 0 o sin fix)
+  const esSinFix = (row) => {
+    const lat = Number(row.lat), lng = Number(row.lng);
+    return row.gps_valid === false
+      || !Number.isFinite(lat) || !Number.isFinite(lng)
+      || (lat === 0 && lng === 0);
+  };
+
   const puntos = [];
+  // Todos los paquetes GPS recibidos (con y sin fix): alimenta la tabla "Registros GPS"
+  const gpsPaquetes = [];
   for (const row of filas.rows) {
     const lat = row.lat, lng = row.lng;
     // gps_valid solo lo manda LillieGo; los Gps mandan lat/lng sin la bandera.
-    const ok = row.gps_valid !== false
-      && Number.isFinite(lat) && Number.isFinite(lng)
-      && !(lat === 0 && lng === 0);
-    if (!ok) continue;
+    const ok = !esSinFix(row);
 
     const rx = Array.isArray(row.rx) ? row.rx : [];
     const validas = rx.filter(x => !x.crcStatus || x.crcStatus === 'CRC_OK');
@@ -435,16 +449,28 @@ export const getMonitorDeviceTrackService = async (deviceId, { from, to } = {}) 
     });
     const conSenal = gateways.filter(g => g.snr != null).sort((a, b) => b.snr - a.snr);
 
-    puntos.push({
+    const paquete = {
       ts: row.ts,
-      lat, lng,
+      lat: Number.isFinite(lat) ? lat : null,
+      lng: Number.isFinite(lng) ? lng : null,
       alt: row.alt ?? null,
-      bateria_mv: row.bat_mv ?? (row.bat_v != null ? row.bat_v * 1000 : null),
+      bateria_mv: row.bat_mv ?? row.vbat_mv ?? (row.bat_v != null ? row.bat_v * 1000 : null),
+      satelites: row.sats ?? null,
+      temperatura_c: row.temp_c ?? null,
+      packet_type: row.packet_type ?? null,
+      modo: row.modo ?? null,
+      motion: row.motion === true,
+      freefall: row.freefall === true,
       n_gw: gateways.length,
       gateways,
       rssi: conSenal[0]?.rssi ?? null,
       snr: conSenal[0]?.snr ?? null,
-    });
+      sin_fix: !ok,
+    };
+
+    // Solo los paquetes GPS (los únicos que traen lat/lon) alimentan la tabla \"Registros GPS\"
+    if (row.lat != null || row.lng != null) gpsPaquetes.push(paquete);
+    if (ok) puntos.push(paquete);
   }
 
   // Distancia recorrida (haversine) para mostrarla en el resumen
@@ -457,15 +483,39 @@ export const getMonitorDeviceTrackService = async (deviceId, { from, to } = {}) 
     distanciaKm += 2 * R * Math.asin(Math.sqrt(h));
   }
 
+  // Resumen de paquetes GPS (son los únicos que traen lat/lon): los keepalive no cuentan.
+  const filasGps = filas.rows.filter(r => r.lat != null || r.lng != null);
+  const fechasSinFix = filasGps.filter(esSinFix).map(r => r.ts);
+  const ultimaFila = filas.rows[filas.rows.length - 1] || null;
+  // Un equipo de prueba puede tener miles de paquetes GPS; ni el mapa ni la tabla necesitan todos.
+  const MAX_PUNTOS = 800;
+  const MAX_GPS_TABLA = 500;
+  const puntosTotal = puntos.length;
+  const puntosMapa = puntosTotal > MAX_PUNTOS ? puntos.slice(-MAX_PUNTOS) : puntos;
+  const gpsTabla = gpsPaquetes.length > MAX_GPS_TABLA ? gpsPaquetes.slice(-MAX_GPS_TABLA) : gpsPaquetes;
+
   return {
     device: dev.rows[0] || null,
     desde, hasta,
     total_registros: filas.rows.length,
-    puntos,
+    puntos: puntosMapa,
+    gps_paquetes: gpsTabla,
     resumen: {
-      puntos: puntos.length,
-      sin_fix: filas.rows.length - puntos.length,
-      gw_promedio: puntos.length ? Number((puntos.reduce((a, p) => a + p.n_gw, 0) / puntos.length).toFixed(1)) : 0,
+      puntos: puntosMapa.length,
+      puntos_total: puntosTotal,
+      sin_fix: fechasSinFix.length,
+      gps_total: filasGps.length,
+      // Solo las últimas 20 fechas: el resto se resume en el contador
+      sin_fix_fechas: fechasSinFix.slice(-20),
+      ultimo_dato: ultimaFila
+        ? {
+            ts: ultimaFila.ts,
+            packet_type: ultimaFila.packet_type ?? null,
+            bateria_mv: ultimaFila.vbat_mv ?? ultimaFila.bat_mv ?? null,
+          }
+        : null,
+      ultimo_gps: puntosTotal ? puntos[puntosTotal - 1].ts : null,
+      gw_promedio: puntosTotal ? Number((puntos.reduce((a, p) => a + p.n_gw, 0) / puntosTotal).toFixed(1)) : 0,
       distancia_km: Number(distanciaKm.toFixed(3)),
     },
   };
