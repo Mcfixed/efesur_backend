@@ -892,7 +892,10 @@ export const getMonitorReportAlertsService = async (deviceIds, from, to) => {
            d.name as device_name, d.type_device, d.dev_eui,
            COALESCE((
              SELECT json_agg(json_build_object(
-               'timestamp', ta.timestamp,
+               -- tracking_alerts.timestamp es TIMESTAMP sin zona y guarda UTC. Dentro de un
+               -- json_build_object el driver NO aplica el parser de fechas, así que se formatea
+               -- como ISO con 'Z'; sin eso el navegador lo interpretaba como hora local.
+               'timestamp', to_char(ta.timestamp, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
                'battery', ta.battery,
                'latitude', ta.latitude,
                'longitude', ta.longitude,

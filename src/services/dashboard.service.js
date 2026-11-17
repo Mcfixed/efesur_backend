@@ -48,7 +48,8 @@ export const getCriticalAlerts = (companyIds) => {
       u.name as resolved_by_name,
       COALESCE(
         (SELECT json_agg(json_build_object(
-          'timestamp', ta.timestamp,
+          -- Mismo criterio que en el reporte: ISO con 'Z' para que el navegador lo pase a hora local.
+          'timestamp', to_char(ta.timestamp, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
           'battery', ta.battery,
           'latitude', ta.latitude,
           'longitude', ta.longitude,
