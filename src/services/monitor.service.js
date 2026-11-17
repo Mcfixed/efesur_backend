@@ -536,6 +536,58 @@ export const getMonitorLatestTelemetryService = async (limit = 30, companyIds) =
   return r.rows;
 };
 
+// ─── Sensores que escucha un gateway (para el mapa del panel) ──
+// Reemplaza la descarga de 5000 filas de telemetría que hacía el front (9 MB cada 15 s):
+// acá se resuelve con una sola consulta sobre las últimas 24 h y se devuelve un registro por sensor.
+export const getMonitorGatewaySensoresService = async (gatewayId, { horas = 24 } = {}) => {
+  const gw = await pool.query(`SELECT id, name, dev_eui, latitude_current, longitude_current FROM devices WHERE id = $1`, [gatewayId]);
+  const g = gw.rows[0];
+  if (!g) return { total: 0, sensores: [] };
+
+  const eui = String(g.dev_eui || '').toLowerCase();
+  const eui6 = eui.slice(-6);
+  const nombre = String(g.name || '').toLowerCase();
+
+  const r = await pool.query(`
+    SELECT DISTINCT ON (t.device_id)
+           t.device_id,
+           t.ts,
+           d.name, d.dev_eui, d.latitude_current, d.longitude_current,
+           (x->>'snr')::float8  AS snr,
+           (x->>'rssi')::float8 AS rssi
+    FROM telemetry_data_all t
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE
+        WHEN jsonb_typeof(t.rxinfo) = 'array'  THEN t.rxinfo
+        WHEN jsonb_typeof(t.rxinfo) = 'object' THEN jsonb_build_array(t.rxinfo)
+        ELSE '[]'::jsonb
+      END
+    ) x
+    JOIN devices d ON d.id = t.device_id
+    WHERE t.ts >= (now() AT TIME ZONE 'UTC') - ($4::int * INTERVAL '1 hour')
+      AND (x->>'gatewayId') IS NOT NULL
+      AND (
+        lower(x->>'gatewayId') = $1
+        OR ($2 <> '' AND right(lower(x->>'gatewayId'), 6) = $2)
+        OR ($3 <> '' AND lower(x->>'gatewayId') = $3)
+      )
+    ORDER BY t.device_id, t.ts DESC
+  `, [eui, eui6, nombre, horas]);
+
+  const sensores = r.rows.map(row => ({
+    id: row.device_id,
+    name: row.name,
+    dev_eui: row.dev_eui,
+    lat: row.latitude_current != null ? Number(row.latitude_current) : null,
+    lng: row.longitude_current != null ? Number(row.longitude_current) : null,
+    snr: row.snr ?? null,
+    rssi: row.rssi ?? null,
+    ts: row.ts,
+  }));
+
+  return { total: sensores.length, sensores };
+};
+
 // ─── Dispositivos GPS activos ──
 export const getMonitorDevicesService = async (companyIds) => {
   let filter = ''; const p = [];
@@ -550,6 +602,7 @@ export const getMonitorDevicesService = async (companyIds) => {
          )
          FROM telemetry_data_all t
          WHERE t.device_id = d.id
+           AND t.ts >= (now() AT TIME ZONE 'UTC') - INTERVAL '7 day'
            AND t.object IS NOT NULL
            AND (t.object->>'operatingMode' IS NOT NULL
              OR t.object->'systemStatus'->>'operatingMode' IS NOT NULL)
@@ -558,7 +611,9 @@ export const getMonitorDevicesService = async (companyIds) => {
         'sin datos'
       ) as operating_mode,
       (SELECT t.object->>'voltage_mV'::text
-       FROM telemetry_data_all t WHERE t.device_id = d.id AND t.object IS NOT NULL
+       FROM telemetry_data_all t
+       WHERE t.device_id = d.id AND t.object IS NOT NULL
+         AND t.ts >= (now() AT TIME ZONE 'UTC') - INTERVAL '7 day'
        ORDER BY t.ts DESC LIMIT 1) as last_value,
       -- Batería de la estación (banco de 12 V que reporta el MPPT). Los gateways no tienen
       -- telemetría propia: para ellos se lee la del lector asignado (id_device_father).
@@ -568,7 +623,15 @@ export const getMonitorDevicesService = async (companyIds) => {
        WHERE t.device_id = CASE WHEN d.type_device = 'Gateway' THEN COALESCE(d.id_device_father, d.id) ELSE d.id END
          AND t.object->'Mppt'->>'batteryVoltage_V' IS NOT NULL
          AND t.ts >= (now() AT TIME ZONE 'UTC') - INTERVAL '7 day'
-       ORDER BY t.ts DESC LIMIT 1) as battery_v
+       ORDER BY t.ts DESC LIMIT 1) as battery_v,
+      -- ¿Tiene CA 220? Se lee el cargador (BlueSmartIP67) del lector asignado al gateway:
+      -- voltaje > 0 = conectado a la red; 0 o sin dato = va con panel solar.
+      (SELECT (t.object->'BlueSmartIP67'->>'voltaje_V')::float8
+       FROM telemetry_data_all t
+       WHERE t.device_id = CASE WHEN d.type_device = 'Gateway' THEN COALESCE(d.id_device_father, d.id) ELSE d.id END
+         AND t.object->'BlueSmartIP67'->>'voltaje_V' IS NOT NULL
+         AND t.ts >= (now() AT TIME ZONE 'UTC') - INTERVAL '7 day'
+       ORDER BY t.ts DESC LIMIT 1) as grid_v
     FROM devices d
     LEFT JOIN gps_device gps ON d.id = gps.id
     WHERE 1=1${filter} ORDER BY d.name ASC

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSummary, getActiveSensors, getAlertsPerDay, getCalendar, getAlertsByDate, getDevices, getDeviceTelemetry, getDeviceAlerts, getDeviceTrack, getGatewayPositions, getAlertTracking, getLatestTelemetry, getReport, getReportBattery, getReportConnectivity, getReportExecutive, getReportAlerts, getReportTemperature, getReportGps, getReportGateway, getReportComparative, getReportGatewayStats, getSystemServices, getDayReport, getSatData, getGatewayUptime } from '../controllers/monitor.controller.js';
+import { getSummary, getActiveSensors, getAlertsPerDay, getCalendar, getAlertsByDate, getDevices, getDeviceTelemetry, getDeviceAlerts, getDeviceTrack, getGatewayPositions, getGatewaySensores, getAlertTracking, getLatestTelemetry, getReport, getReportBattery, getReportConnectivity, getReportExecutive, getReportAlerts, getReportTemperature, getReportGps, getReportGateway, getReportComparative, getReportGatewayStats, getSystemServices, getDayReport, getSatData, getGatewayUptime } from '../controllers/monitor.controller.js';
 import { requireRole } from '../utils/accessControl.js';
 
 const router = Router();
@@ -19,6 +19,8 @@ router.get('/devices/:id/alerts', getDeviceAlerts);
 router.get('/devices/:id/track', getDeviceTrack);
 router.get('/gateways/positions', getGatewayPositions);
 router.get('/gateways/uptime', getGatewayUptime);
+// Sensores que escuchó un gateway (últimas 24 h por defecto): evita bajar 5000 uplinks al navegador.
+router.get('/gateways/:id/sensores', getGatewaySensores);
 router.get('/tracking/:id', getAlertTracking);
 router.get('/devices/latest', getLatestTelemetry);
 router.get('/system/services', getSystemServices);

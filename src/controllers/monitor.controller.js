@@ -12,6 +12,7 @@ import {
   getMonitorDayReportService,
   getMonitorSatDataService,
   getMonitorDeviceTrackService,
+  getMonitorGatewaySensoresService,
 } from '../services/monitor.service.js';
 import { getSystemServicesService } from '../services/system.service.js';
 import { success } from '../utils/response.js';
@@ -102,6 +103,19 @@ export const getDeviceAlerts = async (req, res, next) => {
 export const getGatewayPositions = async (req, res, next) => {
   try { const data = await getMonitorGatewayPositionsService(req.userCompanyIds); success(res, data); }
   catch (e) { next(e); }
+};
+
+// Sensores que reportaron a un gateway en las últimas N horas (una sola fila por sensor).
+// Sustituye en el front la descarga de 5000 uplinks (≈9 MB) para pintar los puntos del mapa.
+export const getGatewaySensores = async (req, res, next) => {
+  try {
+    const gatewayId = parseInt(req.params.id);
+    if (!Number.isInteger(gatewayId)) return next(Object.assign(new Error('id de gateway inválido'), { statusCode: 400 }));
+    await assertDeviceAccess(req.userCompanyIds, gatewayId);
+    const horas = Math.min(Math.max(parseInt(req.query.horas) || 24, 1), 168);
+    const data = await getMonitorGatewaySensoresService(gatewayId, { horas });
+    success(res, data);
+  } catch (e) { next(e); }
 };
 
 // Recorrido de un tracker LillieGo: puntos con posición válida + gateways que recibieron cada uno

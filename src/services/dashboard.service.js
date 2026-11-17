@@ -256,6 +256,14 @@ export const getGatewayStatus = (companyIds) => {
     d.is_active,
     gw.ip_internal,
     gw.firmware_version,
+    -- ¿Tiene CA 220? Se lee el cargador (BlueSmartIP67) del lector asignado al gateway.
+    -- voltaje > 0 = conectado a la red; 0 o sin dato = va con panel solar.
+    (SELECT (t.object->'BlueSmartIP67'->>'voltaje_V')::float8
+     FROM telemetry_data_all t
+     WHERE t.device_id = COALESCE(d.id_device_father, d.id)
+       AND t.object->'BlueSmartIP67'->>'voltaje_V' IS NOT NULL
+       AND t.ts >= (now() AT TIME ZONE 'UTC') - INTERVAL '7 day'
+     ORDER BY t.ts DESC LIMIT 1) AS grid_v,
     CASE 
       WHEN d.is_active = true AND (
         d.last_seen IS NULL OR 

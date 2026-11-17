@@ -9,6 +9,8 @@ import { toNodeHandler } from 'better-auth/node';
 import config from './config/index.js';
 import { auth } from './config/auth.js';
 import { requireAuth } from './middleware/auth.js';
+import cacheRespuestas from './middleware/cache.js';
+import limitarConcurrencia from './middleware/concurrencia.js';
 import { errorHandler, notFoundHandler, jsonErrorHandler } from './middleware/errorHandler.js';
 import pool, { esErrorDeConexion, podarClientesMuertos } from './config/database.js';
 import dashboardRouter from './routes/dashboard.routes.js';
@@ -172,11 +174,13 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(jsonErrorHandler); // Atrapa errores de JSON mal formado
 
 // Rutas protegidas (todas requieren autenticación)
-app.use('/api/dashboard', requireAuth, dashboardRouter);
+// `cacheRespuestas` sirve el body ya serializado durante la ventana de frescura (ver middleware/cache.js):
+// con varios usuarios simultáneos la base se consulta 1 vez por ventana, no N.
+app.use('/api/dashboard', requireAuth, cacheRespuestas, limitarConcurrencia(), dashboardRouter);
 app.use('/api/config', requireAuth, configRouter);
 app.use('/api/chirpstack', requireAuth, chirpstackRouter);
 app.use('/api/audit', requireAuth, auditRouter);
-app.use('/api/monitor', requireAuth, monitorRouter);
+app.use('/api/monitor', requireAuth, cacheRespuestas, limitarConcurrencia(), monitorRouter);
 
 // Error handling
 app.use(notFoundHandler);
