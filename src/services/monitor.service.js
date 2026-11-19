@@ -66,7 +66,10 @@ export const getMonitorActiveSensorsService = async (companyIds) => {
   const r = await pool.query(`
     SELECT ${TO_CL('t.ts')}::date as dia, COUNT(DISTINCT t.device_id) as activos
     FROM telemetry_data_all t JOIN devices d ON t.device_id = d.id
-    WHERE d.is_active = true AND t.ts >= ${DAY_START_UTC(TODAY_CL)} - INTERVAL '30 days'${filter}
+    -- Solo sensores GPS: los lectores también escriben en telemetry_data_all y antes inflaban
+    -- el conteo, así que la card no cuadraba con el total de GPS del resumen.
+    WHERE d.is_active = true AND d.type_device = 'Gps'
+      AND t.ts >= ${DAY_START_UTC(TODAY_CL)} - INTERVAL '30 days'${filter}
     GROUP BY ${TO_CL('t.ts')}::date ORDER BY dia ASC
   `, p);
   return r.rows;
