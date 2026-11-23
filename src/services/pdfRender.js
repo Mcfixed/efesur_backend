@@ -72,7 +72,8 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-function buildHtml(d) {
+// Exportado también para poder probar el HTML del informe sin generar el PDF completo.
+export function buildHtml(d) {
   const hasTrack = d.track && d.track.length >= 2;
   const mapDiv = hasTrack
     ? `<div style="margin-top:8px">
@@ -129,12 +130,12 @@ function buildHtml(d) {
       <div style="text-align:center;padding:4px 10px 14px;border-bottom:3px solid #dc2626">
         <p style="font-size:10px;color:#dc2626;font-weight:700;text-transform:uppercase;letter-spacing:2px;margin:0 0 4px">Informe de alerta crítica</p>
         <h1 style="font-size:22px;color:#111;margin:0 0 4px">Alerta #${d.id}</h1>
-        <p style="font-size:11px;color:#6b7280;margin:0">${esc(d.device_name)} · ${esc(d.dev_eui)} · Finalizada el ${fmtDate(d.resolved_at)}</p>
+        <p style="font-size:11px;color:#6b7280;margin:0">${esc(d.device_name)} · Finalizada el ${fmtDate(d.resolved_at)}</p>
       </div>
 
       <h2 class="section-title">Detalle de la alerta</h2>
       <table class="data">
-        ${[['Dispositivo', d.device_name], ['EUI', d.dev_eui], ['Tipo', d.type || 'crítica'], ['Inicio', fmtDate(d.created_at)],
+        ${[['Dispositivo', d.device_name], ['Tipo', d.type || 'crítica'], ['Inicio', fmtDate(d.created_at)],
             ['Fin', fmtDate(d.resolved_at)], ['Duración', d.duration], ['Resuelta por', d.resolved_by],
             ['Motivo', d.reason]].map(([k, v]) => `
           <tr><td style="width:150px;font-weight:600;background:#fafafa">${k}</td>
@@ -165,7 +166,12 @@ function buildHtml(d) {
       ${hasTrack ? `
       var pts = ${JSON.stringify(d.track.map((p) => [p.lat, p.lng]))};
       var map = L.map('track-map', { zoomControl: false, attributionControl: true, scrollWheelZoom: false });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+      var tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+      // La señal de "listo" se toma de la capa (se dispara cuando ya están todos los tiles
+      // visibles). Antes se usaba map.on('load'), que Leaflet dispara DENTRO de fitBounds:
+      // al registrar el listener después, el evento ya había pasado y la espera siempre
+      // terminaba en el timeout.
+      tiles.on('load', function(){ window.__PDF_READY__ = true; });
       L.polyline(pts, { color: '#ef4444', weight: 3, opacity: 0.85 }).addTo(map);
       pts.forEach(function(pos, i) {
         var isFirst = i === 0, isLast = i === pts.length - 1;
@@ -174,7 +180,6 @@ function buildHtml(d) {
       });
       map.fitBounds(L.latLngBounds(pts), { padding: [30, 30] });
       map.whenReady(function(){ setTimeout(function(){ map.invalidateSize(); }, 150); });
-      map.on('load', function(){ window.__PDF_READY__ = true; });
       setTimeout(function(){ window.__PDF_READY__ = true; }, 12000);
       ` : ''}
     <\/script>
@@ -194,6 +199,30 @@ export async function renderPdfFromData(data) {
       const ready = await page.evaluate(() => window.__PDF_READY__).catch(() => true);
       if (ready) break;
       await new Promise((r) => setTimeout(r, 500));
+    }
+    // El PDF de Chrome descarta con frecuencia capas con transformaciones (los paneles de
+    // Leaflet: tiles y marcadores), y salía el mapa en blanco. Se captura el mapa ya pintado y
+    // se reemplaza por un <img>: lo que se ve en pantalla es lo que queda en el PDF.
+    const mapEl = await page.$('#track-map');
+    if (mapEl) {
+      try {
+        const png = await mapEl.screenshot({ type: 'png' });
+        await page.evaluate((b64) => {
+          const el = document.querySelector('#track-map');
+          if (!el) return;
+          const img = document.createElement('img');
+          img.src = 'data:image/png;base64,' + b64;
+          img.setAttribute('width', '690');
+          img.style.width = '690px';
+          img.style.maxWidth = '100%';
+          img.style.height = 'auto';
+          img.style.border = '1px solid #e2e8f0';
+          img.style.borderRadius = '6px';
+          el.replaceWith(img);
+        }, png.toString('base64'));
+      } catch (e) {
+        console.error('[pdfRender] no se pudo capturar el mapa:', e.message);
+      }
     }
     const pdf = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true });
     return Buffer.from(pdf);

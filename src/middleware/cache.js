@@ -44,7 +44,7 @@ function borrar(key) {
   if (prev) { bytesTotales -= prev.bytes; store.delete(key); }
 }
 
-function guardar(key, body) {
+function guardar(key, body, url) {
   const bytes = body.length * 2; // los strings JS son UTF-16
   if (bytes > MAX_BYTES) return;
   borrar(key);
@@ -54,8 +54,19 @@ function guardar(key, body) {
     if (primera === undefined) break;
     borrar(primera);
   }
-  store.set(key, { body, at: Date.now(), bytes });
+  store.set(key, { body, at: Date.now(), bytes, url });
   bytesTotales += bytes;
+}
+
+/**
+ * Tira lo cacheado de una familia de rutas (p. ej. '/api/dashboard').
+ * Se llama cuando un POST/PUT/PATCH/DELETE termina bien: si no, después de resolver una
+ * alerta el siguiente GET seguiría sirviendo la lista vieja (hasta `ttl` ms) y la tarjeta
+ * recién resuelta volvería a aparecer en pantalla.
+ */
+function invalidarPrefijo(prefijo) {
+  if (!prefijo) return;
+  for (const [k, v] of store) if (v.url && v.url.startsWith(prefijo)) borrar(k);
 }
 
 function responder(res, body, etiqueta) {
@@ -65,7 +76,15 @@ function responder(res, body, etiqueta) {
 }
 
 export default function cacheRespuestas(req, res, next) {
-  if (req.method !== 'GET') return next();
+  // Escritura (resolver una alerta, guardar config…): al terminar bien se tira la caché de esa
+  // familia de rutas para que el siguiente GET ya traiga el estado nuevo.
+  if (req.method !== 'GET') {
+    res.on('finish', () => {
+      if (res.statusCode < 400) invalidarPrefijo(req.baseUrl || '');
+    });
+    return next();
+  }
+
   const ttl = ttlDe(req.originalUrl);
   if (!ttl) return next();
 
@@ -105,7 +124,7 @@ export default function cacheRespuestas(req, res, next) {
     let entry = null;
     if (res.statusCode === 200 && typeof body === 'string') {
       entry = { body };
-      guardar(key, body);
+      guardar(key, body, req.originalUrl);
     }
     res.set('X-Cache', 'MISS');
     res.set('Cache-Control', 'private, max-age=0, must-revalidate');

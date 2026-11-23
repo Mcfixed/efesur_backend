@@ -69,7 +69,6 @@ async function getRecipients(alertId) {
 function buildWhatsAppText(r) {
   let t = `[BOT AST] 🔴 *INFORME ALERTA CRÍTICA RESUELTA*\n\n`;
   t += ` *Dispositivo:* ${r.device_name}\n`;
-  t += ` *EUI:* ${r.dev_eui}\n`;
   t += ` *Inicio:* ${fmtDate(r.created_at)}\n`;
   t += ` *Fin:* ${fmtDate(r.resolved_at)}\n`;
   t += ` *Duración:* ${r.duration}\n`;
@@ -83,7 +82,6 @@ function buildWhatsAppText(r) {
 function buildEmailHtml(r) {
   const rows = [
     ['Dispositivo', r.device_name],
-    ['EUI', r.dev_eui],
     ['Inicio', fmtDate(r.created_at)],
     ['Fin', fmtDate(r.resolved_at)],
     ['Duración', r.duration],
