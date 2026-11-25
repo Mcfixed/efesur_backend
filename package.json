@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "node src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "diag:informe": "node scripts/diag-informe.mjs"
   },
   "dependencies": {
     "@chirpstack/chirpstack-api": "^4.19.0",

@@ -67,15 +67,31 @@ async function getBrowser() {
       `Instala un navegador o define PUPPETEER_EXECUTABLE_PATH en el .env`
     );
   }
+  const args = ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'];
+  // En redes con proxy la salida del servidor suele ir por ahí (el navegador headless NO toma
+  // las variables de entorno). Si el informe queda sin mapa base, probar HTTPS_PROXY=...
+  const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+  if (proxy) args.push(`--proxy-server=${proxy}`);
+  // Redes con inspección TLS: el certificado del proxy no valida. Sólo activarlo a sabiendas.
+  if ((process.env.PUPPETEER_IGNORE_CERT || '') === 'true') args.push('--ignore-certificate-errors');
   _browser = await puppeteer.launch({
     executablePath,
     headless: true,
-    args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+    args,
   });
+  if (proxy) console.log('[pdfWorker] proxy:', proxy);
   console.log('[pdfWorker] navegador:', executablePath);
   _browser.on('disconnected', () => { _browser = null; });
   return _browser;
 }
+
+// Proveedor de tiles del mapa base del informe. OSM bloquea por política de uso las peticiones
+// que vienen de servidores (responde 200 con cabecera `x-blocked`), así que por defecto se usa
+// Esri World Street Map, que no requiere API key. Se puede cambiar sin tocar código con
+// TILES_URL / TILES_ATTR en el .env (ver README de notas al final del archivo).
+const TILES_URL = (process.env.TILES_URL || '').trim()
+  || 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+const TILES_ATTR = (process.env.TILES_ATTR || '').trim() || 'Tiles © Esri';
 
 function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -266,7 +282,7 @@ export function buildHtml(d) {
       try {
         var pts = ${JSON.stringify(d.track.map((p) => [p.lat, p.lng]))};
         var map = L.map('track-map', { zoomControl: false, attributionControl: true, scrollWheelZoom: false });
-        var tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+        var tiles = L.tileLayer(${JSON.stringify(TILES_URL)}, { maxZoom: 19, attribution: ${JSON.stringify(TILES_ATTR)} }).addTo(map);
         // OJO: 'load' de la capa también se dispara cuando TODOS los tiles fallaron (Leaflet cuenta
         // los errores como "terminados"). Por eso se cuentan los tiles realmente pintados: si al
         // terminar no hay ninguno, el servidor no tiene salida a internet y se usa el SVG.
@@ -295,6 +311,8 @@ export async function renderPdfFromData(data) {
   const html = buildHtml(data);
   const browser = await getBrowser();
   const page = await browser.newPage();
+  const fallosRed = [];
+  page.on('requestfailed', (r) => { if (fallosRed.length < 6) fallosRed.push(`${r.url().slice(0, 100)} → ${r.failure()?.errorText}`); });
   try {
     await page.setViewport({ width: 800, height: 1100 });
     await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -311,6 +329,10 @@ export async function renderPdfFromData(data) {
       // Sin mapa real: queda el SVG (vector, se imprime nítido) y no se toca nada más.
       await page.evaluate(() => { if (window.__USAR_SVG__) window.__USAR_SVG__(); }).catch(() => {});
     }
+    // Diagnóstico: queda en el log del backend por qué salió (o no) el mapa base.
+    const tiles = await page.evaluate(() => document.querySelectorAll('.leaflet-tile-loaded').length).catch(() => 0);
+    console.log(`[informe][mapa] alerta ${data.id}: ${mapaOk ? 'mapa real' : 'SIN mapa base → trazado SVG'} · tiles=${tiles} · leaflet=${LEAFLET.js ? 'inline' : 'FALTA (npm install)'} · url=${TILES_URL}`);
+    if (!mapaOk && fallosRed.length) console.log(`[informe][mapa] fallos de red: ${fallosRed.join(' | ')}`);
     // El PDF de Chrome descarta con frecuencia capas con transformaciones (los paneles de
     // Leaflet: tiles y marcadores), y salía el mapa en blanco. Se captura el mapa ya pintado y
     // se reemplaza por un <img>: lo que se ve en pantalla es lo que queda en el PDF.
